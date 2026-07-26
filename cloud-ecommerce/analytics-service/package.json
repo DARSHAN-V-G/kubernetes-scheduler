@@ -1,0 +1,12 @@
+{
+  "name": "analytics-service",
+  "version": "1.0.0",
+  "main": "analytics.js",
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "winston": "^3.11.0"
+  },
+  "scripts": {
+    "start": "node analytics.js"
+  }
+}

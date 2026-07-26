@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ecommerce
+  labels:
+    app: worker
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        scheduler.reclaim/class: "A"
+    spec:
+      containers:
+        - name: worker
+          image: worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVICE_NAME
+              value: "worker"
+            - name: RABBITMQ_URL
+              value: "amqp://guest:guest@rabbitmq:5672"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+          # Since it is a stateless worker, we use a simple liveness probe checking the process status
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - -f
+                - worker.js
+            initialDelaySeconds: 15
+            periodSeconds: 15

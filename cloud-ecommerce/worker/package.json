@@ -1,0 +1,12 @@
+{
+  "name": "worker",
+  "version": "1.0.0",
+  "main": "worker.js",
+  "dependencies": {
+    "amqplib": "^0.10.3",
+    "winston": "^3.11.0"
+  },
+  "scripts": {
+    "start": "node worker.js"
+  }
+}
