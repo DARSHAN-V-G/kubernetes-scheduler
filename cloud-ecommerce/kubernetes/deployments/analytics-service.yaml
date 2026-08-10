@@ -6,7 +6,7 @@ metadata:
   labels:
     app: analytics-service
 spec:
-  replicas: 4
+  replicas: 1
   selector:
     matchLabels:
       app: analytics-service
@@ -27,16 +27,17 @@ spec:
               value: "kafka:9092"
           resources:
             requests:
-              cpu: "2"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "2"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             exec:
               command:
                 - pgrep
                 - -f
                 - analytics.js
-            initialDelaySeconds: 20
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15

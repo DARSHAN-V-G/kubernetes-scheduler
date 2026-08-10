@@ -22,7 +22,7 @@ metadata:
   labels:
     app: api-gateway
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: api-gateway
@@ -54,20 +54,22 @@ spec:
               value: "super-secret-key"
           resources:
             requests:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15

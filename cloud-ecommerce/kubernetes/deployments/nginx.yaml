@@ -22,7 +22,7 @@ metadata:
   labels:
     app: nginx
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: nginx
@@ -41,20 +41,22 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "500m"
-              memory: "256Mi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "500m"
-              memory: "256Mi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             httpGet:
               path: /
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           readinessProbe:
             httpGet:
               path: /
               port: 8080
-            initialDelaySeconds: 5
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15

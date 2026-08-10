@@ -22,7 +22,7 @@ metadata:
   labels:
     app: product-service
 spec:
-  replicas: 4
+  replicas: 1
   selector:
     matchLabels:
       app: product-service
@@ -48,20 +48,22 @@ spec:
               value: "redis://redis:6379"
           resources:
             requests:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             httpGet:
               path: /api/products/health
               port: 3000
-            initialDelaySeconds: 20
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           readinessProbe:
             httpGet:
               path: /api/products/health
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15

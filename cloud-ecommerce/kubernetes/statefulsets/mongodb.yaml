@@ -49,27 +49,29 @@ spec:
               name: mongodb
           resources:
             requests:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             exec:
               command:
                 - mongosh
                 - --eval
                 - "db.adminCommand('ping')"
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15
           readinessProbe:
             exec:
               command:
                 - mongosh
                 - --eval
                 - "db.adminCommand('ping')"
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15
           volumeMounts:
             - name: mongodb-data-volume
               mountPath: /data/db

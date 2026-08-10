@@ -22,7 +22,7 @@ metadata:
   labels:
     app: notification-service
 spec:
-  replicas: 4
+  replicas: 1
   selector:
     matchLabels:
       app: notification-service
@@ -46,20 +46,22 @@ spec:
               value: "amqp://guest:guest@rabbitmq:5672"
           resources:
             requests:
-              cpu: "1000m"
-              memory: "512Mi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "1000m"
-              memory: "512Mi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             httpGet:
               path: /api/notifications/health
               port: 3000
-            initialDelaySeconds: 20
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           readinessProbe:
             httpGet:
               path: /api/notifications/health
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15

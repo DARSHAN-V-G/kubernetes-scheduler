@@ -51,11 +51,11 @@ spec:
               name: postgres
           resources:
             requests:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             exec:
               command:
@@ -64,8 +64,9 @@ spec:
                 - postgres
                 - -d
                 - ecommerce
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15
           readinessProbe:
             exec:
               command:
@@ -74,8 +75,9 @@ spec:
                 - postgres
                 - -d
                 - ecommerce
-            initialDelaySeconds: 15
+            initialDelaySeconds: 90
             periodSeconds: 10
+            timeoutSeconds: 15
           volumeMounts:
             - name: postgres-init-volume
               mountPath: /docker-entrypoint-initdb.d/

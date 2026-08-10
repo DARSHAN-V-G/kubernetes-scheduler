@@ -36,7 +36,7 @@ metadata:
   labels:
     app: grafana
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: grafana
@@ -58,11 +58,11 @@ spec:
               value: "admin"
           resources:
             requests:
-              cpu: "1"
-              memory: "512Mi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "1"
-              memory: "512Mi"
+              cpu: "100m"
+              memory: "128Mi"
           volumeMounts:
             - name: datasources-volume
               mountPath: /etc/grafana/provisioning/datasources

@@ -42,7 +42,7 @@ metadata:
     app: kafka
 spec:
   serviceName: kafka-headless
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: kafka
@@ -92,21 +92,23 @@ spec:
               exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/docker/server.properties
           resources:
             requests:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "2"
-              memory: "2Gi"
+              cpu: "100m"
+              memory: "128Mi"
           livenessProbe:
             tcpSocket:
               port: 9092
-            initialDelaySeconds: 20
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           readinessProbe:
             tcpSocket:
               port: 9092
-            initialDelaySeconds: 20
+            initialDelaySeconds: 90
             periodSeconds: 15
+            timeoutSeconds: 15
           volumeMounts:
             - name: kafka-data
               mountPath: /var/lib/kafka/data
