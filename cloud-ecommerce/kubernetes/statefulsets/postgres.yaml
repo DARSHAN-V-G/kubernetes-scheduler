@@ -22,7 +22,7 @@ metadata:
     app: postgres
 spec:
   serviceName: postgres
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: postgres
@@ -51,11 +51,11 @@ spec:
               name: postgres
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "250m"
+              memory: "256Mi"
             limits:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "500m"
+              memory: "512Mi"
           livenessProbe:
             exec:
               command:

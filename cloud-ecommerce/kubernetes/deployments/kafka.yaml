@@ -92,11 +92,11 @@ spec:
               exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/docker/server.properties
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "250m"
+              memory: "512Mi"
             limits:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "500m"
+              memory: "1Gi"
           livenessProbe:
             tcpSocket:
               port: 9092

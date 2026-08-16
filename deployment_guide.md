@@ -13,6 +13,90 @@ Ensure you have the following installed on your machine:
 4. **Kubectl CLI** ([Installation Guide](https://kubernetes.io/docs/tasks/tools/))
 5. **Node.js** (for running the load generator script locally)
 
+### WSL (Ubuntu/Linux) Docker, Kubectl & Kind Setup
+
+If you are using WSL (Windows Subsystem for Linux), follow these instructions to install and configure Docker, `kubectl`, and `kind` in your bash terminal:
+
+#### 0. Configure WSL for Kubernetes (Cgroup v2 & Systemd)
+Newer Kubernetes control planes (and Kind) require **cgroup v2** and **systemd**. Run these commands in your WSL terminal to configure them:
+
+```bash
+# 1. Enable systemd in WSL
+if [ ! -f /etc/wsl.conf ] || ! grep -q "systemd=true" /etc/wsl.conf; then
+  echo -e "[boot]\nsystemd=true" | sudo tee -a /etc/wsl.conf
+fi
+
+# 2. Configure Windows host to force cgroup v2 unified hierarchy
+powershell.exe -Command 'Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value "[wsl2]`nkernelCommandLine = cgroup_no_v1=all systemd.unified_cgroup_hierarchy=1"'
+
+# 3. Shutdown WSL to apply the changes (you must reopen your terminal after this)
+powershell.exe -Command 'wsl --shutdown'
+```
+
+#### 1. Setup Docker
+You have two options to run Docker inside WSL:
+
+##### Option A: Docker Desktop (Recommended)
+1. Download and install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
+2. During setup, make sure the **Use WSL 2 instead of Hyper-V** option is enabled.
+3. Open Docker Desktop, navigate to **Settings > Resources > WSL Integration**, and toggle on the switch for your installed Linux distribution (e.g., Ubuntu).
+4. Restart your WSL terminal. Docker commands (like `docker ps`) will now run correctly from your WSL shell.
+
+##### Option B: Native Docker Engine (Inside WSL Ubuntu)
+If you prefer a lightweight CLI setup directly in WSL without Docker Desktop:
+```bash
+# Update package lists and install basic dependencies
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+
+# Add Docker's official GPG key
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Set up the Docker APT repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine packages
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Start the Docker daemon service
+sudo service docker start
+
+# Grant your user permissions to run Docker without sudo (requires terminal restart)
+sudo usermod -aG docker $USER
+```
+
+#### 2. Install `kubectl`
+```bash
+# Download the latest stable kubectl binary
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+
+# Make it executable and move to PATH
+chmod +x ./kubectl
+sudo mv ./kubectl /usr/local/bin/kubectl
+
+# Verify installation
+kubectl version --client
+```
+
+#### 3. Install `kind`
+```bash
+# Download the latest stable kind binary (v0.32.0)
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+
+# Make it executable and move to PATH
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+# Verify installation
+kind --version
+```
+
 ---
 
 ## Step 1: Create a Kind Cluster with a Multi-Node Topology
@@ -114,10 +198,13 @@ All K8s templates are located in the `kubernetes/` folder. We will apply them in
    kubectl apply -f kubernetes/deployments/rabbitmq.yaml
    kubectl apply -f kubernetes/deployments/kafka.yaml
    ```
-4. **Wait for Databases to Boot Up:**
+4. **Wait for Databases & Brokers to Boot Up:**
    ```bash
-   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=postgres --timeout=90s
-   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=mongodb --timeout=90s
+   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=postgres --timeout=180s
+   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=mongodb --timeout=180s
+   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=redis --timeout=180s
+   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=rabbitmq --timeout=180s
+   kubectl wait --namespace=ecommerce --for=condition=ready pod -l app=kafka --timeout=180s
    ```
 5. **Deploy Microservices & Routing Engine:**
    ```bash
@@ -207,3 +294,4 @@ To evaluate your custom scheduler, you need to create resource exhaustion pressu
    ```
 4. **Inspect Scheduler Logs:**
    Observe your scheduler detect idle class `A` replicas (workers and notification services) using the Metrics API, suspend them, and schedule the trigger workload.
+d t

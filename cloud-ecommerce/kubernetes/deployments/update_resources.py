@@ -1,7 +1,8 @@
 import os
 import re
 
-deploy_dir = '/home/darshan/repositories/kubernetes-test-application/cloud-ecommerce/kubernetes/deployments'
+base_dir = os.path.dirname(os.path.abspath(__file__))
+deploy_dir = base_dir
 
 for filename in os.listdir(deploy_dir):
     if filename.endswith('.yaml'):
@@ -12,11 +13,12 @@ for filename in os.listdir(deploy_dir):
         # Replace replicas (if > 2)
         content = re.sub(r'replicas:\s*[3-9]+', 'replicas: 2', content)
         
-        # Replace cpu requests and limits
-        content = re.sub(r'cpu:\s*"[^"]+"', 'cpu: "100m"', content)
-        
-        # Replace memory requests and limits
-        content = re.sub(r'memory:\s*"[^"]+"', 'memory: "128Mi"', content)
+        # Protect critical databases/brokers from memory downscaling
+        if filename not in ['mongodb.yaml', 'postgres.yaml', 'kafka.yaml', 'rabbitmq.yaml']:
+            # Replace cpu requests and limits
+            content = re.sub(r'cpu:\s*"[^"]+"', 'cpu: "100m"', content)
+            # Replace memory requests and limits
+            content = re.sub(r'memory:\s*"[^"]+"', 'memory: "128Mi"', content)
         
         with open(filepath, 'w') as f:
             f.write(content)
