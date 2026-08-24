@@ -34,7 +34,7 @@ spec:
     spec:
       containers:
         - name: mongodb
-          image: mongo:6.0
+          image: local-mongo:6.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
