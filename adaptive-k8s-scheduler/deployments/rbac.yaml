@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adaptive-scheduler-sa
+  namespace: kube-system
+  labels:
+    app: adaptive-scheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adaptive-scheduler-cluster-role
+  labels:
+    app: adaptive-scheduler
+rules:
+  # Core K8s resources for node allocatable & pod specs
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - nodes/status
+      - services
+      - endpoints
+      - configmaps
+      - namespaces
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/status
+    verbs: ["get", "list", "watch", "update", "patch"]
+
+  # Pod Binding API (required for scheduler to bind pod to node)
+  - apiGroups: [""]
+    resources:
+      - pods/binding
+    verbs: ["create"]
+
+  # Event emission for scheduler actions
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs: ["create", "patch", "update"]
+
+  # PodDisruptionBudgets for disruption allowances
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
+  # Controller inspection for replica quorums
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+      - deployments
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+
+  # Leader Election Lease management
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Non-resource URL permissions for cAdvisor scraping
+  - nonResourceURLs:
+      - /metrics
+      - /metrics/cadvisor
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adaptive-scheduler-cluster-role-binding
+  labels:
+    app: adaptive-scheduler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adaptive-scheduler-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: adaptive-scheduler-sa
+    namespace: kube-system
