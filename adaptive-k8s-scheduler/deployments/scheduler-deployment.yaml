@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adaptive-scheduler
+  namespace: kube-system
+  labels:
+    app: adaptive-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adaptive-scheduler
+  template:
+    metadata:
+      labels:
+        app: adaptive-scheduler
+    spec:
+      serviceAccountName: adaptive-scheduler-sa
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: adaptive-scheduler-prom-config
+        - name: prometheus-storage
+          emptyDir: {}
+      containers:
+        # -------------------------------------------------------------
+        # Container 1: Co-Located Dedicated Prometheus Instance
+        # -------------------------------------------------------------
+        - name: prometheus
+          image: prom/prometheus:v2.45.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=2h"
+            - "--web.listen-address=0.0.0.0:9090"
+          ports:
+            - containerPort: 9090
+              name: prom-http
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-storage
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+        # -------------------------------------------------------------
+        # Container 2: Custom Adaptive Scheduler & Central Collector
+        # -------------------------------------------------------------
+        - name: adaptive-scheduler
+          image: adaptive-scheduler:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/metrics-collector
+          args:
+            - "--scheduler-name=adaptive-scheduler"
+            - "--leader-elect=true"
+            - "--leader-elect-resource-name=adaptive-scheduler"
+            - "--leader-elect-resource-namespace=kube-system"
+            - "--prometheus-url=http://127.0.0.1:9090"
+            - "--scrape-interval=10s"
+            - "--http-port=8081"
+          ports:
+            - containerPort: 8081
+              name: http-api
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adaptive-scheduler-service
+  namespace: kube-system
+  labels:
+    app: adaptive-scheduler
+spec:
+  ports:
+    - name: http-api
+      port: 8081
+      targetPort: 8081
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+  selector:
+    app: adaptive-scheduler
+  type: ClusterIP
