@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adaptive Scheduler // Runtime Control Plane Simulator</title>
+  <meta name="description" content="Enterprise control-plane simulator and decision observability platform for the Adaptive Runtime-Aware Kubernetes Scheduler intelligence pipeline.">
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+
+  <!-- Top Application Navigation Bar (Part 5) -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="brand-logo" aria-hidden="true">
+        <svg class="icon-svg brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+          <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+          <line x1="6" y1="6" x2="6.01" y2="6"></line>
+          <line x1="6" y1="18" x2="6.01" y2="18"></line>
+        </svg>
+      </div>
+      <div class="brand-meta">
+        <div class="brand-name">Adaptive Scheduler</div>
+        <div class="brand-sub">
+          <span>Simulation Environment</span>
+          <span class="badge-mode">
+            <span class="status-dot"></span>
+            SIMULATION MODE
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Navigation Tabs -->
+    <nav class="header-center-nav" aria-label="Main Navigation">
+      <button class="nav-tab-btn active" data-view="overview">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        Cluster Overview
+      </button>
+      <button class="nav-tab-btn" data-view="lab">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><polygon points="6 2 18 2 18 6 6 6 6 2"></polygon><line x1="3" y1="6" x2="21" y2="6"></line><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        Scenario Lab (75)
+      </button>
+      <button class="nav-tab-btn" data-view="history">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        Run History
+      </button>
+    </nav>
+
+    <!-- Header Actions -->
+    <div class="header-actions">
+      <div class="scenario-selector-wrap">
+        <label for="select-scenario" class="sr-only">Select Preset Scenario</label>
+        <select id="select-scenario" class="filter-select select-scenario-main" aria-label="Select Scenario">
+          <!-- Populated dynamically via API (75 scenarios) -->
+        </select>
+      </div>
+
+      <button id="btn-modal-add-node" class="btn btn-subtle" title="Add synthetic node">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Node
+      </button>
+
+      <button id="btn-modal-add-workload" class="btn btn-subtle" title="Add synthetic workload">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Workload
+      </button>
+
+      <button id="btn-modal-custom-scenario" class="btn btn-subtle" title="Open Custom Scenario Builder">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+        Custom Scenario
+      </button>
+
+      <button id="btn-run-sim" class="btn btn-simulate">
+        <svg class="icon-svg sm btn-sim-icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        <span id="btn-run-sim-text">RUN SIMULATION</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Compact System Status Strip -->
+  <aside class="system-status-strip" aria-label="System Status">
+    <div class="status-items-group">
+      <div class="status-item">
+        <span class="status-item-label">SIMULATION:</span>
+        <span id="status-sim-state" class="status-item-value highlight">Ready</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">NODES:</span>
+        <span id="status-node-count" class="status-item-value mono">-</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">WORKLOADS:</span>
+        <span id="status-workload-count" class="status-item-value mono">-</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">LAST EVALUATED:</span>
+        <span id="status-last-run" class="status-item-value mono">-</span>
+      </div>
+    </div>
+    <div class="status-items-group">
+      <div class="status-item">
+        <span class="status-item-label">PIPELINE:</span>
+        <span class="status-item-value mono" style="color: var(--color-brand);">Analyzer &rarr; Detector &rarr; Decision Engine (Go Authoritative)</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Pipeline Visualization (Part 7 & Constraint 5) -->
+  <div id="pipeline-strip-container" class="pipeline-strip-container ready" aria-label="Pipeline Architecture Flow">
+    <div class="pipeline-flow">
+      <div class="pipeline-stage" data-stage="1">
+        <div class="pipeline-stage-seq">01</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">TELEMETRY</span>
+          <span class="pipeline-stage-desc">MetricWindow buffer</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+      <span class="pipeline-arrow">&rarr;</span>
+
+      <div class="pipeline-stage" data-stage="2">
+        <div class="pipeline-stage-seq">02</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">ANALYZER</span>
+          <span class="pipeline-stage-desc">Utilization &amp; trends</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+      <span class="pipeline-arrow">&rarr;</span>
+
+      <div class="pipeline-stage" data-stage="3">
+        <div class="pipeline-stage-seq">03</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">IDLE DETECTOR</span>
+          <span class="pipeline-stage-desc">Multi-signal check</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+      <span class="pipeline-arrow">&rarr;</span>
+
+      <div class="pipeline-stage" data-stage="4">
+        <div class="pipeline-stage-seq">04</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">SAFETY GATES</span>
+          <span class="pipeline-stage-desc">Quorum, PDB, Priority</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+      <span class="pipeline-arrow">&rarr;</span>
+
+      <div class="pipeline-stage" data-stage="5">
+        <div class="pipeline-stage-seq">05</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">9-FACTOR SCORING</span>
+          <span class="pipeline-stage-desc">Multi-criteria policy</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+      <span class="pipeline-arrow">&rarr;</span>
+
+      <div class="pipeline-stage" data-stage="6">
+        <div class="pipeline-stage-seq">06</div>
+        <div class="pipeline-stage-info">
+          <span class="pipeline-stage-name">ACTION SELECTION</span>
+          <span class="pipeline-stage-desc">Keep / Soft / Full</span>
+        </div>
+        <span class="pipeline-stage-status">READY</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main View Container -->
+  <main class="main-content">
+
+    <!-- VIEW 1: CLUSTER OVERVIEW (Part 6) -->
+    <div class="view-panel active" data-view-panel="overview">
+
+      <!-- Executive Metrics Grouping (Part 6) -->
+      <section class="executive-metrics-grid" aria-label="Executive Metrics">
+        <!-- Cluster Capacity & Topology -->
+        <div class="metrics-group-card">
+          <div class="metrics-group-title">Cluster Overview</div>
+          <div class="metrics-row">
+            <div class="metric-unit">
+              <span class="metric-unit-label">Nodes</span>
+              <span id="ov-node-count" class="metric-unit-val mono">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Workloads</span>
+              <span id="ov-workload-count" class="metric-unit-val mono">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">CPU Capacity</span>
+              <span id="ov-cpu-cap" class="metric-unit-val mono val-cpu">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Memory Capacity</span>
+              <span id="ov-mem-cap" class="metric-unit-val mono val-mem">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Runtime State -->
+        <div class="metrics-group-card">
+          <div class="metrics-group-title">Runtime State</div>
+          <div class="metrics-row">
+            <div class="metric-unit">
+              <span class="metric-unit-label">Active</span>
+              <span id="stat-val-active" class="metric-unit-val val-active">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Low Usage</span>
+              <span id="stat-val-low" class="metric-unit-val val-low">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Idle</span>
+              <span id="stat-val-idle" class="metric-unit-val val-idle">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Decision Distribution -->
+        <div class="metrics-group-card">
+          <div class="metrics-group-title">Decision Distribution</div>
+          <div class="metrics-row">
+            <div class="metric-unit">
+              <span class="metric-unit-label">Keep</span>
+              <span id="stat-val-keep" class="metric-unit-val val-keep">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Soft Reclaim</span>
+              <span id="stat-val-soft" class="metric-unit-val val-soft">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Full Reclaim</span>
+              <span id="stat-val-full" class="metric-unit-val val-full">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Safety & Resource Projection -->
+        <div class="metrics-group-card">
+          <div class="metrics-group-title">Safety &amp; Reclaim Projection</div>
+          <div class="metrics-row">
+            <div class="metric-unit">
+              <span class="metric-unit-label">Safety Passed</span>
+              <span id="stat-val-passed" class="metric-unit-val val-full">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Safety Blocked</span>
+              <span id="stat-val-blocked" class="metric-unit-val val-blocked">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Reclaim CPU</span>
+              <span id="stat-val-reclaim-cpu" class="metric-unit-val val-cpu">-</span>
+            </div>
+            <div class="metric-unit">
+              <span class="metric-unit-label">Reclaim Mem</span>
+              <span id="stat-val-reclaim-mem" class="metric-unit-val val-mem">-</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Theoretical Resource Impact Comparison (Part 18 & Constraint 4) -->
+      <section class="resource-projection-card" aria-label="Theoretical Impact Comparison">
+        <div class="projection-header">
+          <div class="projection-title-wrap">
+            <span class="projection-title">Cluster Resource Impact &amp; Capacity Projection</span>
+            <span class="projection-badge">SIMULATION PROJECTION</span>
+          </div>
+          <span class="projection-disclaimer">Theoretical Impact Only &mdash; Zero Real Kubernetes Resources Modified</span>
+        </div>
+        <div class="projection-grid">
+          <div class="projection-col">
+            <span class="proj-label">Current Cluster Capacity</span>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">CPU:</span>
+              <span id="proj-cap-cpu" class="proj-val mono">-</span>
+            </div>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">Memory:</span>
+              <span id="proj-cap-mem" class="proj-val mono">-</span>
+            </div>
+          </div>
+
+          <div class="projection-col">
+            <span class="proj-label">Current Actual Usage</span>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">CPU:</span>
+              <span id="proj-used-cpu" class="proj-val mono">-</span>
+            </div>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">Memory:</span>
+              <span id="proj-used-mem" class="proj-val mono">-</span>
+            </div>
+          </div>
+
+          <div class="projection-col">
+            <span class="proj-label">Theoretical Reclaimable</span>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">CPU:</span>
+              <span id="proj-reclaim-cpu" class="proj-val mono reclaim-text">-</span>
+            </div>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">Memory:</span>
+              <span id="proj-reclaim-mem" class="proj-val mono reclaim-text">-</span>
+            </div>
+          </div>
+
+          <div class="projection-col">
+            <span class="proj-label">Projected Available Capacity</span>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">CPU:</span>
+              <span id="proj-post-cpu" class="proj-val mono" style="color: var(--color-brand);">-</span>
+            </div>
+            <div class="proj-metric-row">
+              <span class="proj-sub-label">Memory:</span>
+              <span id="proj-post-mem" class="proj-val mono" style="color: var(--color-purple);">-</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cluster Topology Tree View (Part 8) -->
+      <section aria-label="Cluster Topology">
+        <div class="section-bar">
+          <div class="section-title-group">
+            <h2 class="section-title">Cluster Topology &amp; Node Scheduling</h2>
+            <span class="section-subtitle-tag">[Synthetic Infrastructure Map]</span>
+          </div>
+        </div>
+        <div id="topology-tree-grid" class="topology-tree-container">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </section>
+
+      <!-- Workload Decision Matrix Table (Part 9) -->
+      <section aria-label="Workload Decision Matrix">
+        <div class="section-bar">
+          <div class="section-title-group">
+            <h2 class="section-title">Workload Decision Matrix</h2>
+            <span id="table-filtered-count" class="section-subtitle-tag">-</span>
+          </div>
+        </div>
+
+        <div class="table-panel">
+          <!-- Table Toolbar with Kind filter -->
+          <div class="table-toolbar">
+            <div class="toolbar-search-box">
+              <svg class="icon-svg sm" viewBox="0 0 24 24" style="color: var(--text-dim);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="table-search" placeholder="Search pod name, namespace..." aria-label="Search workloads">
+            </div>
+
+            <div class="toolbar-filters">
+              <select id="filter-classification" class="filter-select" aria-label="Filter by Classification">
+                <option value="ALL">All Classifications</option>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="LOW_USAGE">LOW_USAGE</option>
+                <option value="IDLE">IDLE</option>
+              </select>
+
+              <select id="filter-action" class="filter-select" aria-label="Filter by Action">
+                <option value="ALL">All Actions</option>
+                <option value="KEEP">KEEP</option>
+                <option value="SOFT_RECLAIM">SOFT_RECLAIM</option>
+                <option value="FULL_RECLAIM">FULL_RECLAIM</option>
+              </select>
+
+              <select id="filter-kind" class="filter-select" aria-label="Filter by Kind">
+                <option value="ALL">All Kinds</option>
+                <option value="Deployment">Deployment</option>
+                <option value="StatefulSet">StatefulSet</option>
+                <option value="ReplicaSet">ReplicaSet</option>
+                <option value="DaemonSet">DaemonSet</option>
+              </select>
+
+              <select id="filter-node" class="filter-select" aria-label="Filter by Node">
+                <option value="ALL">All Nodes</option>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+          </div>
+
+          <!-- Sticky Table Container -->
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="sortable" onclick="window.setSort && window.setSort('name')">Workload / Pod</th>
+                  <th>Kind</th>
+                  <th>Node</th>
+                  <th class="sortable" onclick="window.setSort && window.setSort('cpu')">CPU (Used / Req)</th>
+                  <th class="sortable" onclick="window.setSort && window.setSort('mem')">Memory (Used / Req)</th>
+                  <th class="sortable" onclick="window.setSort && window.setSort('idle')">Idle Duration</th>
+                  <th>Classification</th>
+                  <th class="sortable" onclick="window.setSort && window.setSort('score')">Reclaim Score</th>
+                  <th>Selected Action</th>
+                  <th>Safety Gate</th>
+                  <th style="text-align: right;">Decision Analysis</th>
+                </tr>
+              </thead>
+              <tbody id="workload-tbody">
+                <!-- Populated dynamically via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- VIEW 2: SCENARIO LAB (Part 12, 13, 14, 15) -->
+    <div class="view-panel" data-view-panel="lab">
+      <div class="section-bar">
+        <div class="section-title-group">
+          <h2 class="section-title">Scenario Laboratory &mdash; 75 Benchmark Scenarios</h2>
+          <span class="section-subtitle-tag">[Categories A through J &bull; Synthetic Inputs Only]</span>
+        </div>
+      </div>
+
+      <!-- Scenario Search & Category Filters -->
+      <div class="lab-controls-panel">
+        <div class="lab-search-bar">
+          <svg class="icon-svg sm" viewBox="0 0 24 24" style="color: var(--text-dim);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="lab-search" placeholder="Search scenarios (e.g. checkpoint, replica, priority, bursty)..." aria-label="Search scenarios">
+          <span id="lab-search-count" class="lab-count-badge">75 scenarios</span>
+        </div>
+
+        <div class="category-pill-bar" role="tablist" aria-label="Scenario Categories">
+          <button class="category-pill active" data-category="ALL">All (75)</button>
+          <button class="category-pill" data-category="workload-state">A: Workload State (9)</button>
+          <button class="category-pill" data-category="reclamation">B: Reclamation (8)</button>
+          <button class="category-pill" data-category="safety">C: Safety (9)</button>
+          <button class="category-pill" data-category="checkpoint">D: Checkpoint (6)</button>
+          <button class="category-pill" data-category="activity">E: Activity (6)</button>
+          <button class="category-pill" data-category="resources">F: Resources (8)</button>
+          <button class="category-pill" data-category="priority">G: Priority (5)</button>
+          <button class="category-pill" data-category="replicas">H: Replicas (6)</button>
+          <button class="category-pill" data-category="mixed">I: Mixed Signals (9)</button>
+          <button class="category-pill" data-category="complex-clusters">J: Complex Clusters (9)</button>
+        </div>
+      </div>
+
+      <div id="scenario-cards-container" class="scenario-lab-grid">
+        <!-- Populated dynamically via JS with all 75 scenarios -->
+      </div>
+    </div>
+
+    <!-- VIEW 3: SIMULATION RUN HISTORY (Part 19) -->
+    <div class="view-panel" data-view-panel="history">
+      <div class="section-bar">
+        <div class="section-title-group">
+          <h2 class="section-title">Simulation Session History</h2>
+          <span class="section-subtitle-tag">[Local UI Session Observability &mdash; Purely Observational]</span>
+        </div>
+      </div>
+      <div class="history-table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Run #</th>
+              <th>Timestamp</th>
+              <th>Scenario Loaded</th>
+              <th>Workloads</th>
+              <th>Action: KEEP</th>
+              <th>Action: SOFT RECLAIM</th>
+              <th>Action: FULL RECLAIM</th>
+              <th>Safety Blocked</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            <!-- Populated dynamically via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Score Breakdown & Explainability Slide-Over Drawer (Part 10 & 11) -->
+  <div id="drawer-backdrop" class="drawer-backdrop"></div>
+  <aside id="drawer-panel" class="drawer-panel" aria-label="Decision Analysis Drawer">
+    <div class="drawer-header">
+      <div class="drawer-pod-ident">
+        <div class="drawer-panel-title">Decision Analysis</div>
+        <span id="drawer-pod-name" class="drawer-pod-name">-</span>
+        <span id="drawer-pod-meta" class="drawer-pod-ns">-</span>
+      </div>
+      <button id="btn-close-drawer" class="drawer-close-btn" aria-label="Close details drawer">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Verdict Summary Strip -->
+      <div class="drawer-verdict-grid">
+        <div class="verdict-item">
+          <span class="verdict-lbl">Classification</span>
+          <span id="drawer-verdict-class" class="verdict-val">-</span>
+        </div>
+        <div class="verdict-item">
+          <span class="verdict-lbl">Final Score</span>
+          <span id="drawer-verdict-score" class="verdict-val mono highlight" style="color: var(--color-brand);">-</span>
+        </div>
+        <div class="verdict-item">
+          <span class="verdict-lbl">Selected Action</span>
+          <span id="drawer-verdict-action" class="verdict-val">-</span>
+        </div>
+        <div class="verdict-item">
+          <span class="verdict-lbl">Safety Status</span>
+          <span id="drawer-verdict-safety" class="verdict-val">-</span>
+        </div>
+      </div>
+
+      <!-- Capabilities Evaluation -->
+      <div class="drawer-capabilities-box">
+        <span class="cap-header">Dual Capability Evaluation</span>
+        <div class="cap-row">
+          <span>Full Reclaim (CRIU Checkpoint &amp; Suspend):</span>
+          <strong id="drawer-cap-full" class="badge-safety-pass">-</strong>
+        </div>
+        <div class="cap-row">
+          <span>Soft Reclaim (In-Place Resource Right-Sizing):</span>
+          <strong id="drawer-cap-soft" class="badge-safety-pass">-</strong>
+        </div>
+      </div>
+
+      <!-- 9 Factors Breakdown Container -->
+      <div class="factors-section-wrap">
+        <div class="reasons-block-title">9-Factor Normalized Reclamation Score Matrix</div>
+        <div id="drawer-factors-list" class="factors-container">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- Explainability Reasons -->
+      <div class="drawer-reasons-block">
+        <div class="reasons-block-title">Decision Contribution Reasons</div>
+        <ul id="drawer-reasons-decision" class="reasons-ul">
+          <!-- Populated dynamically -->
+        </ul>
+      </div>
+
+      <div class="drawer-reasons-block">
+        <div class="reasons-block-title">Rejection &amp; Safety Blocking Reasons</div>
+        <ul id="drawer-reasons-rejection" class="reasons-ul">
+          <!-- Populated dynamically -->
+        </ul>
+      </div>
+
+      <div class="drawer-reasons-block">
+        <div class="reasons-block-title">Detector Signal Evaluation</div>
+        <ul id="drawer-reasons-detector" class="reasons-ul">
+          <!-- Populated dynamically -->
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Modal: Add Node -->
+  <div id="modal-add-node" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-node-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-node-title" class="modal-title">Add Synthetic Node</span>
+        <button type="button" class="drawer-close-btn modal-close" aria-label="Close modal">
+          <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="form-add-node">
+        <div class="modal-body">
+          <div class="form-field">
+            <label class="form-label">Node Identifier</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g. node-compute-02" required>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">CPU Capacity (Millicores)</label>
+              <input type="number" name="cpu" class="form-input" value="8000" step="1000" required>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Memory Capacity (GiB)</label>
+              <input type="number" name="mem" class="form-input" value="16" step="1" required>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-subtle btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Node</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Add Workload -->
+  <div id="modal-add-workload" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-workload-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-workload-title" class="modal-title">Add Synthetic Workload</span>
+        <button type="button" class="drawer-close-btn modal-close" aria-label="Close modal">
+          <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="form-add-workload">
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">Workload / Pod Name</label>
+              <input type="text" name="name" class="form-input" placeholder="e.g. payment-processor" required>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Namespace</label>
+              <input type="text" name="namespace" class="form-input" value="default" required>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">Target Node</label>
+              <select name="nodeName" class="filter-select" style="width: 100%;" required>
+                <!-- Populated dynamically via JS -->
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Controller Kind</label>
+              <select name="ownerKind" class="filter-select" style="width: 100%;">
+                <option value="Deployment">Deployment</option>
+                <option value="ReplicaSet">ReplicaSet</option>
+                <option value="StatefulSet">StatefulSet</option>
+                <option value="DaemonSet">DaemonSet</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">CPU Request (Millicores)</label>
+              <input type="number" name="reqCpu" class="form-input" value="1000" step="100" required>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Actual CPU Usage (Millicores)</label>
+              <input type="number" name="usageCpu" class="form-input" value="8.0" step="0.5" required>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">Memory Request (MiB)</label>
+              <input type="number" name="reqMem" class="form-input" value="1024" step="128" required>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Actual Memory Usage (MiB)</label>
+              <input type="number" name="usageMem" class="form-input" value="48" step="16" required>
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">Idle Duration (Seconds)</label>
+              <input type="number" name="idleDuration" class="form-input" value="3600" step="60" required>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Incoming Request QPS</label>
+              <input type="number" name="qps" class="form-input" value="0.0" step="0.1">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">Network I/O (Bytes/sec)</label>
+              <input type="number" name="network" class="form-input" value="10.0" step="10">
+            </div>
+            <div class="form-field">
+              <label class="form-label">Available Replicas</label>
+              <input type="number" name="replicas" class="form-input" value="3" min="1">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label class="form-label">PDB Disruptions Allowed (-1 for none)</label>
+              <input type="number" name="pdb" class="form-input" value="1">
+            </div>
+            <div class="form-field">
+              <label class="form-label">Priority (e.g. 100)</label>
+              <input type="number" name="priority" class="form-input" value="100">
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-checkbox-row">
+              <input type="checkbox" id="chk-checkpointable" name="isCheckpointable" checked>
+              <label for="chk-checkpointable" class="form-label" style="cursor: pointer;">CRIU Checkpointable</label>
+            </div>
+            <div class="form-checkbox-row">
+              <input type="checkbox" id="chk-protected" name="isProtected">
+              <label for="chk-protected" class="form-label" style="cursor: pointer;">Protected from Reclaim</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-subtle btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Workload</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Custom Scenario Builder (Part 16) -->
+  <div id="modal-custom-scenario" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-builder-title">
+    <div class="modal-box modal-box-large">
+      <div class="modal-header">
+        <div>
+          <span id="modal-builder-title" class="modal-title">Custom Scenario Builder</span>
+          <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Synthesize custom multi-attribute workloads and node configurations</div>
+        </div>
+        <button type="button" class="drawer-close-btn modal-close" aria-label="Close modal">
+          <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="form-custom-scenario">
+        <div class="modal-body custom-builder-body">
+          <!-- Section 1: IDENTITY -->
+          <div class="form-section-group">
+            <div class="form-section-title">1. Workload Identity</div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">Workload Name</label>
+                <input type="text" name="b_name" class="form-input" placeholder="e.g. custom-worker" value="custom-test-workload" required>
+              </div>
+              <div class="form-field">
+                <label class="form-label">Namespace</label>
+                <input type="text" name="b_namespace" class="form-input" value="default" required>
+              </div>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">Controller Kind</label>
+                <select name="b_ownerKind" class="filter-select" style="width: 100%;">
+                  <option value="Deployment">Deployment</option>
+                  <option value="StatefulSet">StatefulSet</option>
+                  <option value="ReplicaSet">ReplicaSet</option>
+                  <option value="DaemonSet">DaemonSet</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="form-label">Target Node</label>
+                <select name="b_nodeName" class="filter-select" style="width: 100%;">
+                  <!-- Populated dynamically via JS -->
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: RESOURCES -->
+          <div class="form-section-group">
+            <div class="form-section-title">2. Declarative Resources</div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">CPU Request (Millicores)</label>
+                <input type="number" name="b_reqCpu" class="form-input" value="2000" step="100">
+              </div>
+              <div class="form-field">
+                <label class="form-label">CPU Limit (Millicores)</label>
+                <input type="number" name="b_limitCpu" class="form-input" value="2000" step="100">
+              </div>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">Memory Request (MiB)</label>
+                <input type="number" name="b_reqMem" class="form-input" value="2048" step="128">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Memory Limit (MiB)</label>
+                <input type="number" name="b_limitMem" class="form-input" value="2048" step="128">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: RUNTIME TELEMETRY -->
+          <div class="form-section-group">
+            <div class="form-section-title">3. Runtime Telemetry &amp; Inactivity</div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">Actual CPU Usage (Millicores)</label>
+                <input type="number" name="b_usageCpu" class="form-input" value="5.0" step="0.5">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Actual Memory Usage (MiB)</label>
+                <input type="number" name="b_usageMem" class="form-input" value="40" step="10">
+              </div>
+            </div>
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label class="form-label">Network (Bytes/sec)</label>
+                <input type="number" name="b_network" class="form-input" value="10.0" step="10">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Request QPS</label>
+                <input type="number" name="b_qps" class="form-input" value="0.0" step="0.1">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Idle Duration (Sec)</label>
+                <input type="number" name="b_idleDuration" class="form-input" value="7200" step="60">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 4: AVAILABILITY & QUORUM -->
+          <div class="form-section-group">
+            <div class="form-section-title">4. Availability &amp; Quorum</div>
+            <div class="form-grid-3">
+              <div class="form-field">
+                <label class="form-label">Desired Replicas</label>
+                <input type="number" name="b_desiredReplicas" class="form-input" value="3" min="1">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Ready Replicas</label>
+                <input type="number" name="b_readyReplicas" class="form-input" value="3" min="0">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Available Replicas</label>
+                <input type="number" name="b_availableReplicas" class="form-input" value="3" min="0">
+              </div>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">PDB Disruptions Allowed (-1 for none)</label>
+                <input type="number" name="b_pdb" class="form-input" value="1">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Numeric Priority (0-1000000)</label>
+                <input type="number" name="b_priority" class="form-input" value="100">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 5: POLICY & STATE -->
+          <div class="form-section-group">
+            <div class="form-section-title">5. Policy, Capabilities &amp; State</div>
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label class="form-label">Priority Class Name</label>
+                <input type="text" name="b_priorityClass" class="form-input" placeholder="e.g. batch-low">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Pod Phase</label>
+                <select name="b_phase" class="filter-select" style="width: 100%;">
+                  <option value="Running">Running</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Failed">Failed</option>
+                  <option value="Succeeded">Succeeded</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-grid-2" style="margin-top: 0.5rem;">
+              <div class="form-checkbox-row">
+                <input type="checkbox" id="chk-b-checkpointable" name="b_checkpointable" checked>
+                <label for="chk-b-checkpointable" class="form-label" style="cursor: pointer;">CRIU Checkpointable</label>
+              </div>
+              <div class="form-checkbox-row">
+                <input type="checkbox" id="chk-b-protected" name="b_protected">
+                <label for="chk-b-protected" class="form-label" style="cursor: pointer;">Protected Annotation</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-subtle btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add &amp; Run Simulation</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div>Adaptive Runtime-Aware Kubernetes Scheduler &mdash; Academic Final-Year Project</div>
+    <div>Production Intelligence Pipeline: <code class="mono">pkg/analyzer</code> &rarr; <code class="mono">pkg/detector</code> &rarr; <code class="mono">pkg/decision</code></div>
+  </footer>
+
+  <script type="module" src="js/app.js?v=2"></script>
+</body>
+</html>
