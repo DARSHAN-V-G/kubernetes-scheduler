@@ -1,0 +1,31 @@
+apiVersion: reclaim.io/v1alpha1
+kind: ReclaimPolicy
+metadata:
+  name: default-reclaim-policy
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: adaptive-scheduler
+spec:
+  # Minimum sustained idle duration before candidate qualification
+  idleDurationThreshold: "10m"
+
+  # Telemetry thresholds (all must be satisfied to qualify as idle)
+  cpuIdleThresholdPct: 0.05       # CPU usage < 5% of requested
+  memoryIdleThresholdPct: 0.10    # Memory usage < 10% of requested
+  qpsIdleThreshold: 0.0           # Zero HTTP requests/sec
+  netIdleThresholdBytes: 10240.0  # Network I/O < 10 KB/s
+
+  # Safety constraints
+  minReplicasRequired: 1          # Keep at least 1 replica alive in Deployment/ReplicaSet
+  maxPriorityForReclaim: 100000   # Protect high-priority / system workloads
+  exemptPriorityClasses:
+    - system-cluster-critical
+    - system-node-critical
+
+  # Reclamation mode: Adaptive (evaluates 9-factor composite score for Full vs Soft)
+  actionType: "Adaptive"
+
+  # Custom score thresholds
+  scoreThresholds:
+    fullReclaimThreshold: 0.75    # Composite score >= 0.75 triggers CRIU Full Reclaim
+    softReclaimThreshold: 0.50    # Composite score >= 0.50 triggers Soft Right-Sizing

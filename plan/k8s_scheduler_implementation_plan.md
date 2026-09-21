@@ -22,7 +22,7 @@ The system enables **Runtime-Aware Resource Reclamation and Adaptive Scheduling*
 
 > [!WARNING]
 > **Stateful vs Stateless Workloads**:
-> Full reclaim via CRIU is best suited for batch jobs, machine learning training/eval checkpoints, cold developer workspaces, and long-running batch workers. Network-connected TCP services (like open websockets or DB connections) may experience socket resets during restore unless coordinated. We will enforce safe filtering via annotation tags (e.g., `reclaim.simplens.io/checkpointable: "true"` or workload type detection).
+> Full reclaim via CRIU is best suited for batch jobs, machine learning training/eval checkpoints, cold developer workspaces, and long-running batch workers. Network-connected TCP services (like open websockets or DB connections) may experience socket resets during restore unless coordinated. We will enforce safe filtering via annotation tags (e.g., `reclaim.io/checkpointable: "true"` or workload type detection).
 
 ---
 

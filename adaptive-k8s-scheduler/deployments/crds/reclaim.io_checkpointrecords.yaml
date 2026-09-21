@@ -1,0 +1,147 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: checkpointrecords.reclaim.io
+spec:
+  group: reclaim.io
+  names:
+    kind: CheckpointRecord
+    listKind: CheckpointRecordList
+    plural: checkpointrecords
+    singular: checkpointrecord
+    shortNames:
+      - ckpt
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+          description: Checkpoint lifecycle phase
+        - name: SourcePod
+          type: string
+          jsonPath: .spec.sourcePodName
+          description: Original pod name
+        - name: Node
+          type: string
+          jsonPath: .spec.nodeName
+          description: Node where checkpoint occurred
+        - name: SizeBytes
+          type: integer
+          jsonPath: .spec.checkpointSizeBytes
+          description: Tarball size in bytes
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: CheckpointRecord stores metadata, storage path, and integrity checksums for container checkpoints.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - sourcePodName
+                - nodeName
+                - containerName
+                - imageUri
+                - checkpointPath
+                - capturedAt
+              properties:
+                sourcePodName:
+                  type: string
+                  description: Name of the pod checkpointed.
+                sourcePodUid:
+                  type: string
+                  description: UID of the source pod.
+                nodeName:
+                  type: string
+                  description: Node where the source container was running.
+                containerName:
+                  type: string
+                  description: Specific container checkpointed.
+                imageUri:
+                  type: string
+                  description: Container image URI.
+                checkpointPath:
+                  type: string
+                  description: Filesystem path or URI of the CRIU checkpoint archive.
+                checkpointSizeBytes:
+                  type: integer
+                  format: int64
+                  description: Archive size in bytes.
+                checksumSha256:
+                  type: string
+                  description: Cryptographic SHA256 checksum of the tarball.
+                capturedAt:
+                  type: string
+                  format: date-time
+                  description: Capture timestamp.
+                originalRequests:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Resource requests at time of reclamation.
+                originalLimits:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Resource limits at time of reclamation.
+                podSpecSnapshot:
+                  type: string
+                  description: Serialized JSON copy of original pod specification.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Ready
+                    - Restoring
+                    - Restored
+                    - Failed
+                    - Expired
+                  default: Pending
+                restoredPodName:
+                  type: string
+                restoredAt:
+                  type: string
+                  format: date-time
+                message:
+                  type: string
+                failureReason:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

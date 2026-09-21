@@ -1,0 +1,152 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: reclaimpolicies.reclaim.io
+spec:
+  group: reclaim.io
+  names:
+    kind: ReclaimPolicy
+    listKind: ReclaimPolicyList
+    plural: reclaimpolicies
+    singular: reclaimpolicy
+    shortNames:
+      - rpol
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Action
+          type: string
+          jsonPath: .spec.actionType
+          description: Preferred reclamation mode
+        - name: IdleThreshold
+          type: string
+          jsonPath: .spec.idleDurationThreshold
+          description: Continuous idle threshold
+        - name: ActiveReclaims
+          type: integer
+          jsonPath: .status.activeReclamations
+          description: Current active reclamation count
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: ReclaimPolicy configures resource reclamation criteria and safety gates for a namespace.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                idleDurationThreshold:
+                  type: string
+                  default: "10m"
+                  description: Minimum continuous inactivity duration before qualifying as idle (e.g. 10m, 1h).
+                cpuIdleThresholdPct:
+                  type: number
+                  description: Maximum CPU utilization ratio (0.0 - 1.0) to qualify as idle.
+                memoryIdleThresholdPct:
+                  type: number
+                  description: Maximum Memory utilization ratio (0.0 - 1.0) to qualify as idle.
+                qpsIdleThreshold:
+                  type: number
+                  description: Maximum requests/sec to qualify as idle.
+                netIdleThresholdBytes:
+                  type: number
+                  description: Maximum network bytes/sec to qualify as idle.
+                minReplicasRequired:
+                  type: integer
+                  format: int32
+                  description: Minimum replicas that must remain available after removing a pod.
+                maxPriorityForReclaim:
+                  type: integer
+                  format: int32
+                  description: Upper bound priority value for eligible workloads.
+                exemptPriorityClasses:
+                  type: array
+                  items:
+                    type: string
+                  description: PriorityClass names exempt from reclamation.
+                actionType:
+                  type: string
+                  enum:
+                    - FullReclaim
+                    - SoftReclaim
+                    - Adaptive
+                  default: Adaptive
+                  description: Reclamation action mode.
+                weights:
+                  type: object
+                  description: Custom 9-factor scoring weights.
+                  properties:
+                    weightCpu:
+                      type: number
+                    weightMemory:
+                      type: number
+                    weightIdle:
+                      type: number
+                    weightBenefit:
+                      type: number
+                    weightReplica:
+                      type: number
+                    weightPriority:
+                      type: number
+                    weightPdb:
+                      type: number
+                    weightState:
+                      type: number
+                    weightCheckpoint:
+                      type: number
+                scoreThresholds:
+                  type: object
+                  description: Composite score boundaries for action selection.
+                  properties:
+                    fullReclaimThreshold:
+                      type: number
+                    softReclaimThreshold:
+                      type: number
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                activeReclamations:
+                  type: integer
+                  format: int32
+                totalReclaimedCpu:
+                  type: string
+                totalReclaimedMemory:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

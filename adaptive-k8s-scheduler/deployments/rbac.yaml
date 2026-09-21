@@ -64,6 +64,15 @@ rules:
       - leases
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+  # Reclaim CRDs (ReclaimPolicy, CheckpointRecord)
+  - apiGroups: ["reclaim.io"]
+    resources:
+      - reclaimpolicies
+      - reclaimpolicies/status
+      - checkpointrecords
+      - checkpointrecords/status
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
   # Non-resource URL permissions for cAdvisor scraping
   - nonResourceURLs:
       - /metrics

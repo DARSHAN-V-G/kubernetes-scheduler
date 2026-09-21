@@ -1,0 +1,40 @@
+apiVersion: reclaim.io/v1alpha1
+kind: CheckpointRecord
+metadata:
+  name: ckpt-analytics-worker-sample
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: adaptive-scheduler
+    reclaim.io/source-pod: analytics-worker-7db95f87b6-n8f2z
+spec:
+  sourcePodName: "analytics-worker-7db95f87b6-n8f2z"
+  sourcePodUid: "c29e187f-6c70-4d55-88f2-895104d41be2"
+  nodeName: "kind-worker"
+  containerName: "worker"
+  imageUri: "worker:latest"
+  checkpointPath: "/var/lib/kubelet/checkpoints/checkpoint-ecommerce_analytics-worker-7db95f87b6-n8f2z_worker.tar"
+  checkpointSizeBytes: 15728640 # 15 MB
+  checksumSha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  capturedAt: "2026-09-21T12:00:00Z"
+  originalRequests:
+    cpu: "250m"
+    memory: "128Mi"
+  originalLimits:
+    cpu: "500m"
+    memory: "256Mi"
+  podSpecSnapshot: |
+    {
+      "containers": [
+        {
+          "name": "worker",
+          "image": "worker:latest",
+          "resources": {
+            "requests": {"cpu": "250m", "memory": "128Mi"},
+            "limits": {"cpu": "500m", "memory": "256Mi"}
+          }
+        }
+      ]
+    }
+status:
+  phase: "Ready"
+  message: "Container checkpoint tarball verified and ready for restoration"
