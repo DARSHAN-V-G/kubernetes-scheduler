@@ -1,47 +1,43 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: user-service
+  name: backend-api
   namespace: ecommerce
   labels:
-    app: user-service
+    app: backend-api
 spec:
   ports:
     - port: 3000
       targetPort: 3000
-      protocol: TCP
   selector:
-    app: user-service
+    app: backend-api
   type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: user-service
+  name: backend-api
   namespace: ecommerce
   labels:
-    app: user-service
+    app: backend-api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: user-service
+      app: backend-api
   template:
     metadata:
       labels:
-        app: user-service
+        app: backend-api
         scheduler.reclaim/class: "B"
     spec:
       containers:
-        - name: user-service
-          image: user-service:latest
+        - name: backend-api
+          image: backend-api:latest
           imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 3000
-              name: http
           env:
-            - name: SERVICE_NAME
-              value: "user-service"
+            - name: PORT
+              value: "3000"
             - name: DB_HOST
               value: "postgres"
             - name: DB_PORT
@@ -55,26 +51,30 @@ spec:
                   key: postgres-password
             - name: DB_NAME
               value: "ecommerce"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
             - name: JWT_SECRET
               value: "super-secret-key"
+          ports:
+            - containerPort: 3000
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "50m"
+              memory: "64Mi"
             limits:
-              cpu: "100m"
+              cpu: "250m"
               memory: "128Mi"
           livenessProbe:
             httpGet:
-              path: /api/users/health
+              path: /api/health
               port: 3000
-            initialDelaySeconds: 90
-            periodSeconds: 15
-            timeoutSeconds: 15
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /api/users/health
+              path: /api/health
               port: 3000
-            initialDelaySeconds: 90
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 15
+            timeoutSeconds: 5

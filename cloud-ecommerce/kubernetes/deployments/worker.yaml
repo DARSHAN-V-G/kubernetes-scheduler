@@ -6,7 +6,7 @@ metadata:
   labels:
     app: worker
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: worker
@@ -23,22 +23,21 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "worker"
-            - name: RABBITMQ_URL
-              value: "amqp://guest:guest@rabbitmq:5672"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "50m"
+              memory: "32Mi"
             limits:
               cpu: "100m"
-              memory: "128Mi"
-          # Since it is a stateless worker, we use a simple liveness probe checking the process status
+              memory: "64Mi"
           livenessProbe:
             exec:
               command:
                 - pgrep
                 - -f
                 - worker.js
-            initialDelaySeconds: 90
+            initialDelaySeconds: 10
             periodSeconds: 15
-            timeoutSeconds: 15
+            timeoutSeconds: 5

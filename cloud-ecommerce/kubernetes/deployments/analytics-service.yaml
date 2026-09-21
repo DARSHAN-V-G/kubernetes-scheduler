@@ -6,7 +6,7 @@ metadata:
   labels:
     app: analytics-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: analytics-service
@@ -23,21 +23,21 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "analytics-service"
-            - name: KAFKA_BROKERS
-              value: "kafka:9092"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "50m"
+              memory: "32Mi"
             limits:
               cpu: "100m"
-              memory: "128Mi"
+              memory: "64Mi"
           livenessProbe:
             exec:
               command:
                 - pgrep
                 - -f
                 - analytics.js
-            initialDelaySeconds: 90
+            initialDelaySeconds: 10
             periodSeconds: 15
-            timeoutSeconds: 15
+            timeoutSeconds: 5

@@ -22,7 +22,7 @@ metadata:
     app: postgres
 spec:
   serviceName: postgres
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: postgres
@@ -34,7 +34,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: local-postgres:15-alpine
+          image: postgres:15-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: POSTGRES_DB
@@ -51,11 +51,11 @@ spec:
               name: postgres
           resources:
             requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
               cpu: "250m"
               memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
           livenessProbe:
             exec:
               command:
@@ -64,9 +64,9 @@ spec:
                 - postgres
                 - -d
                 - ecommerce
-            initialDelaySeconds: 90
+            initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 15
+            timeoutSeconds: 5
           readinessProbe:
             exec:
               command:
@@ -75,9 +75,9 @@ spec:
                 - postgres
                 - -d
                 - ecommerce
-            initialDelaySeconds: 90
+            initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 15
+            timeoutSeconds: 5
           volumeMounts:
             - name: postgres-init-volume
               mountPath: /docker-entrypoint-initdb.d/
@@ -94,4 +94,4 @@ spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:
           requests:
-            storage: 20Gi
+            storage: 1Gi

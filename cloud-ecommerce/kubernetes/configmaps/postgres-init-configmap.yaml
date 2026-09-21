@@ -15,6 +15,16 @@ data:
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Create Products Table
+    CREATE TABLE IF NOT EXISTS products (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        price DECIMAL(10, 2) NOT NULL,
+        category VARCHAR(100),
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Create Orders Table for Order Service
     CREATE TABLE IF NOT EXISTS orders (
         id SERIAL PRIMARY KEY,
@@ -39,3 +49,12 @@ data:
     VALUES 
     ('testuser', 'testuser@example.com', '$2b$10$wN1j/G.dC/94NfXm5aAfe.YjU6ZfL3fFm/yUfH4hB2oEqB/nO2cSy')
     ON CONFLICT (username) DO NOTHING;
+
+    -- Insert seed products
+    INSERT INTO products (id, name, price, category, description)
+    VALUES 
+    ('p1', 'Premium Cloud Arch Shirt', 29.99, 'Apparel', 'Over-provisioned comfort'),
+    ('p2', 'Kubernetes Scheduler Mug', 14.99, 'Kitchenware', 'Keeps beverages warm while pods are pending'),
+    ('p3', 'Node Allocator Plushie', 24.99, 'Toys', 'Reclaims logical resources on contact'),
+    ('p4', 'Autoscaler Keycap', 9.99, 'Electronics', 'Fills node capacity with a single click')
+    ON CONFLICT (id) DO NOTHING;

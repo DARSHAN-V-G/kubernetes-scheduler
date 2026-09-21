@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stress-trigger-job
+  namespace: ecommerce
+  labels:
+    app: stress-trigger
+spec:
+  template:
+    metadata:
+      labels:
+        app: stress-trigger
+        scheduler.reclaim/class: "C"
+    spec:
+      schedulerName: default-scheduler
+      restartPolicy: Never
+      containers:
+        - name: stress-task
+          image: busybox:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - "echo 'Starting compute stress task...'; dd if=/dev/urandom of=/dev/null bs=1M count=1000; echo 'Task completed successfully!'"
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

@@ -34,10 +34,11 @@ scrape_configs:
       - role: pod
     relabel_configs:
       - source_labels: [__meta_kubernetes_pod_label_app]
-        regex: '(api-gateway|user-service|product-service|order-service|notification-service)'
+        regex: '(backend-api|frontend|nginx|worker|analytics-service)'
         action: keep
       - source_labels: [__address__]
         action: replace
         regex: '([^:]+)(?::\d+)?'
         replacement: '${1}:3000'
         target_label: __address__
+

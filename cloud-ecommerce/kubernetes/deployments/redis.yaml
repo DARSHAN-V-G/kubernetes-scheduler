@@ -40,24 +40,24 @@ spec:
               name: redis
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "50m"
+              memory: "32Mi"
             limits:
               cpu: "100m"
-              memory: "128Mi"
+              memory: "64Mi"
           livenessProbe:
             exec:
               command:
                 - redis-cli
                 - ping
-            initialDelaySeconds: 90
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 15
+            timeoutSeconds: 5
           readinessProbe:
             exec:
               command:
                 - redis-cli
                 - ping
-            initialDelaySeconds: 90
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 15
+            timeoutSeconds: 5
