@@ -22,6 +22,10 @@ spec:
             name: adaptive-scheduler-prom-config
         - name: prometheus-storage
           emptyDir: {}
+        - name: checkpoints-volume
+          hostPath:
+            path: /var/lib/kubelet/checkpoints
+            type: DirectoryOrCreate
       containers:
         # -------------------------------------------------------------
         # Container 1: Co-Located Dedicated Prometheus Instance
@@ -69,6 +73,9 @@ spec:
           ports:
             - containerPort: 8081
               name: http-api
+          volumeMounts:
+            - name: checkpoints-volume
+              mountPath: /var/lib/kubelet/checkpoints
           livenessProbe:
             httpGet:
               path: /healthz

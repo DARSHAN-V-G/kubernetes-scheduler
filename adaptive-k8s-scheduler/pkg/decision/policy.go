@@ -64,8 +64,8 @@ type Policy struct {
 // DefaultPolicy returns the standard policy matching the project implementation plan.
 func DefaultPolicy() *Policy {
 	return &Policy{
-		FullReclaimScoreThreshold: 0.75,
-		SoftReclaimScoreThreshold: 0.50,
+		FullReclaimScoreThreshold: 0.35,
+		SoftReclaimScoreThreshold: 0.20,
 
 		WeightCPU:        0.20,
 		WeightMemory:     0.20,
@@ -80,7 +80,7 @@ func DefaultPolicy() *Policy {
 		MaxPriorityForReclaim: 100000,
 		MinReplicasRequired:   1,
 
-		IdleMaxDurationSec:  3600.0,
+		IdleMaxDurationSec:  60.0,
 		BenefitMaxCPUMillis: 2000.0,
 		BenefitMaxMemBytes:  4 * 1024 * 1024 * 1024, // 4 GiB
 

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-idle-worker
+  namespace: ecommerce
+  annotations:
+    reclaim.io/checkpointable: "true"
+  labels:
+    app: test-idle-worker
+    scheduler.reclaim/class: "A"
+spec:
+  schedulerName: adaptive-scheduler
+  containers:
+    - name: worker
+      image: alpine:3.20
+      command: ["/bin/sh", "-c", "sleep 3600"]
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,6 +24,7 @@ type HTTPKubeletClient struct {
 	client     kubernetes.Interface
 	restClient rest.Interface
 	httpClient *http.Client
+	bearerToken string
 	useProxy   bool
 	logger     *zap.Logger
 }
@@ -35,10 +37,19 @@ func NewHTTPKubeletClient(client kubernetes.Interface, restConfig *rest.Config, 
 	}
 
 	var restCli rest.Interface
+	var token string
 	if restConfig != nil {
+		token = restConfig.BearerToken
 		rc, err := rest.RESTClientFor(restConfig)
 		if err == nil {
 			restCli = rc
+		}
+	}
+
+	// Fallback to service account token file if running in-cluster
+	if token == "" {
+		if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+			token = string(data)
 		}
 	}
 
@@ -52,11 +63,12 @@ func NewHTTPKubeletClient(client kubernetes.Interface, restConfig *rest.Config, 
 	}
 
 	return &HTTPKubeletClient{
-		client:     client,
-		restClient: restCli,
-		httpClient: httpClient,
-		useProxy:   useProxy,
-		logger:     logger,
+		client:      client,
+		restClient:  restCli,
+		httpClient:  httpClient,
+		bearerToken: token,
+		useProxy:    useProxy,
+		logger:      logger,
 	}, nil
 }
 
@@ -74,12 +86,8 @@ func (k *HTTPKubeletClient) Checkpoint(ctx context.Context, nodeName, namespace,
 
 	// Mode 1: API Server Node Proxy (preferred in cluster)
 	if k.useProxy && k.client != nil {
-		proxyPath := fmt.Sprintf("/checkpoint/%s/%s/%s", namespace, pod, container)
-		req := k.client.CoreV1().RESTClient().Post().
-			Resource("nodes").
-			Name(fmt.Sprintf("%s:10250", nodeName)).
-			SubResource("proxy").
-			Suffix(proxyPath)
+		proxyAbsPath := fmt.Sprintf("/api/v1/nodes/%s/proxy/checkpoint/%s/%s/%s", nodeName, namespace, pod, container)
+		req := k.client.CoreV1().RESTClient().Post().AbsPath(proxyAbsPath)
 
 		raw, err := req.DoRaw(ctx)
 		if err != nil {
@@ -99,6 +107,10 @@ func (k *HTTPKubeletClient) Checkpoint(ctx context.Context, nodeName, namespace,
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, directURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct direct checkpoint request: %w", err)
+	}
+
+	if k.bearerToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+k.bearerToken)
 	}
 
 	httpResp, err := k.httpClient.Do(httpReq)

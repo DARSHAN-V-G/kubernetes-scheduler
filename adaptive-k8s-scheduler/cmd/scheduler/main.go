@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/action"
+	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/analyzer"
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/config"
+	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/decision"
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/metrics"
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/scheduler"
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/storage"
@@ -70,10 +72,11 @@ func main() {
 	// 4. Storage & Action Manager
 	store := storage.NewLocalFSStorage("/var/lib/kubelet/checkpoints")
 	validator := action.NewCheckpointValidator(store, logger)
-	kubeletClient, _ := action.NewHTTPKubeletClient(clientset, k8sConfig, true, logger)
+	kubeletClient, _ := action.NewHTTPKubeletClient(clientset, k8sConfig, false, logger)
 	evictor := action.NewK8sPodEvictor(clientset, logger)
 	softReclaimer := action.NewSoftReclaimer(clientset, logger)
-	_ = action.NewActionManager(kubeletClient, validator, evictor, softReclaimer, nil, logger)
+	actionMgr := action.NewActionManager(kubeletClient, validator, evictor, softReclaimer, nil, logger)
+	decisionEngine := decision.NewEngine(nil)
 
 	// 5. Adaptive Scheduler
 	adaptiveSched := scheduler.NewAdaptiveScheduler(schedCfg, clientset, cache, eventRecorder, logger)
@@ -97,6 +100,47 @@ func main() {
 	go func() {
 		if err := collector.Start(ctx); err != nil {
 			logger.Error("Collector terminated with error", zap.Error(err))
+		}
+	}()
+
+	// 8. Start Reclamation Engine Loop in background
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				allPods := cache.GetAllPods()
+				for _, pod := range allPods {
+					if !pod.IsIdle {
+						continue
+					}
+					window, _ := cache.GetWindow(pod.Namespace, pod.Name)
+					profile := analyzer.Analyze(pod, window, nil)
+					decisionResult := decisionEngine.Evaluate(profile, pod)
+
+					if decisionResult.Action == decision.ActionFullReclaim || decisionResult.Action == decision.ActionSoftReclaim {
+						logger.Info("Reclamation Engine evaluating action",
+							zap.String("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)),
+							zap.String("action", string(decisionResult.Action)),
+							zap.Float64("score", decisionResult.Score),
+						)
+						req := action.ActionRequest{
+							Pod:      pod,
+							Decision: decisionResult,
+						}
+						res, err := actionMgr.Execute(ctx, req)
+						if err != nil {
+							logger.Error("Reclamation action failed", zap.Error(err))
+						} else {
+							logger.Info("Reclamation action succeeded", zap.String("message", res.Message))
+						}
+					}
+				}
+			}
 		}
 	}()
 

@@ -17,7 +17,6 @@ rules:
   - apiGroups: [""]
     resources:
       - nodes
-      - nodes/proxy
       - nodes/metrics
       - nodes/status
       - services
@@ -28,13 +27,18 @@ rules:
 
   - apiGroups: [""]
     resources:
+      - nodes/proxy
+    verbs: ["get", "list", "watch", "create"]
+
+  - apiGroups: [""]
+    resources:
       - pods
       - pods/status
     verbs: ["get", "list", "watch", "update", "patch"]
 
-  # Pod Binding API (required for scheduler to bind pod to node)
   - apiGroups: [""]
     resources:
+      - pods/eviction
       - pods/binding
     verbs: ["create"]
 
@@ -88,7 +92,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: adaptive-scheduler-cluster-role
+  name: cluster-admin
 subjects:
   - kind: ServiceAccount
     name: adaptive-scheduler-sa

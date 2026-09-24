@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/part-of: adaptive-scheduler
 spec:
   # Minimum sustained idle duration before candidate qualification
-  idleDurationThreshold: "10m"
+  idleDurationThreshold: "30s"
 
   # Telemetry thresholds (all must be satisfied to qualify as idle)
   cpuIdleThresholdPct: 0.05       # CPU usage < 5% of requested

@@ -25,14 +25,14 @@ nodes:
       - hostPath: /tmp/checkpoints
         containerPath: /var/lib/kubelet/checkpoints
 
-  # Worker 3
-  - role: worker
-    extraMounts:
-      - hostPath: /tmp/checkpoints
-        containerPath: /var/lib/kubelet/checkpoints
+  # # Worker 3
+  # - role: worker
+  #   extraMounts:
+  #     - hostPath: /tmp/checkpoints
+  #       containerPath: /var/lib/kubelet/checkpoints
 
-  # Worker 4
-  - role: worker
-    extraMounts:
-      - hostPath: /tmp/checkpoints
-        containerPath: /var/lib/kubelet/checkpoints
+  # # Worker 4
+  # - role: worker
+  #   extraMounts:
+  #     - hostPath: /tmp/checkpoints
+  #       containerPath: /var/lib/kubelet/checkpoints
