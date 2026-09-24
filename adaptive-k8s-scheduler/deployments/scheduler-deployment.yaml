@@ -57,7 +57,7 @@ spec:
           image: adaptive-scheduler:latest
           imagePullPolicy: IfNotPresent
           command:
-            - /bin/metrics-collector
+            - /bin/adaptive-scheduler
           args:
             - "--scheduler-name=adaptive-scheduler"
             - "--leader-elect=true"

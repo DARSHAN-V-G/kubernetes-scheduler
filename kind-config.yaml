@@ -1,30 +1,37 @@
 apiVersion: kind.x-k8s.io/v1alpha4
 kind: Cluster
-# Enable the Container Checkpointing feature gate on the API Server and Controller Manager
+# Enable the Container Checkpointing feature gate on API Server and Controller Manager
 featureGates:
   ContainerCheckpoint: true
+# Explicitly patch KubeletConfiguration to guarantee Kubelet enables the ContainerCheckpoint feature gate
+kubeadmConfigPatches:
+  - |
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    kind: KubeletConfiguration
+    featureGates:
+      ContainerCheckpoint: true
 nodes:
   - role: control-plane
   
-  # Worker 1 (Target limits: 1 CPU, 1.5GB RAM)
+  # Worker 1
   - role: worker
     extraMounts:
       - hostPath: /tmp/checkpoints
         containerPath: /var/lib/kubelet/checkpoints
         
-  # Worker 2 (Target limits: 1 CPU, 1.5GB RAM)
+  # Worker 2
   - role: worker
     extraMounts:
       - hostPath: /tmp/checkpoints
         containerPath: /var/lib/kubelet/checkpoints
 
-  # Worker 3 (Target limits: 1 CPU, 1.5GB RAM)
+  # Worker 3
   - role: worker
     extraMounts:
       - hostPath: /tmp/checkpoints
         containerPath: /var/lib/kubelet/checkpoints
 
-  # Worker 4 (Target limits: 1 CPU, 1.5GB RAM)
+  # Worker 4
   - role: worker
     extraMounts:
       - hostPath: /tmp/checkpoints
