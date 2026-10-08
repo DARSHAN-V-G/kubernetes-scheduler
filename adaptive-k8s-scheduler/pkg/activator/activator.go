@@ -207,21 +207,28 @@ func (s *ActivatorServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Workload and dependencies are now Ready on the Kubernetes Service EndpointSlice!
-	// Replay buffered request directly to the service ClusterIP / DNS
-	targetReq, err := bufferedReq.ToHTTPRequest(r.Context(), targetBaseURL)
-	if err != nil {
-		s.logger.Error("Failed constructing target request from buffer", zap.Error(err))
-		http.Error(w, "Internal Proxy Error", http.StatusInternalServerError)
-		return
+	var resp *http.Response
+	var reqErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		targetReq, err := bufferedReq.ToHTTPRequest(r.Context(), targetBaseURL)
+		if err != nil {
+			s.logger.Error("Failed constructing target request from buffer", zap.Error(err))
+			http.Error(w, "Internal Proxy Error", http.StatusInternalServerError)
+			return
+		}
+		resp, reqErr = s.httpClient.Do(targetReq)
+		if reqErr == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	resp, err := s.httpClient.Do(targetReq)
-	if err != nil {
+	if reqErr != nil {
 		s.logger.Error("Failed forwarding buffered request to newly restored service",
 			zap.String("targetURL", targetBaseURL),
-			zap.Error(err),
+			zap.Error(reqErr),
 		)
-		http.Error(w, "502 Bad Gateway: restored service unreachable: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "502 Bad Gateway: restored service unreachable: "+reqErr.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()

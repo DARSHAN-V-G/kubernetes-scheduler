@@ -23,6 +23,7 @@ metadata:
     app: frontend
   annotations:
     reclaim.io/checkpointable: "true"
+    reclaim.io/graceful-redeploy: "true"
     reclaim.io/depends-on: "backend-api"
     reclaim.io/app: "ecommerce"
 spec:
@@ -37,6 +38,7 @@ spec:
         scheduler.reclaim/class: "B"
       annotations:
         reclaim.io/checkpointable: "true"
+        reclaim.io/graceful-redeploy: "true"
         reclaim.io/depends-on: "backend-api"
         reclaim.io/app: "ecommerce"
     spec:

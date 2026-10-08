@@ -32,73 +32,21 @@
       </div>
     </div>
 
-    <!-- Execution Mode Selector: [ Scenario Simulator ]   [ Active Workload / Cluster ] -->
+    <!-- Execution Mode Selector: Single Authoritative Tab -->
     <div class="mode-switcher-container" role="tablist" aria-label="Execution Mode">
-      <button id="btn-mode-simulator" class="mode-switch-btn active" data-mode="simulator">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-        Scenario Simulator
-      </button>
-      <button id="btn-mode-cluster" class="mode-switch-btn" data-mode="cluster">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-        Active Workload / Cluster
+      <button id="btn-mode-traffic" class="mode-switch-btn active" data-mode="traffic">
+        <svg class="icon-svg sm" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        Live Traffic and Scheduler Monitor
       </button>
     </div>
 
-    <!-- Center Navigation Tabs -->
-    <nav class="header-center-nav" aria-label="Main Navigation">
-      <button class="nav-tab-btn active" data-view="overview">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-        Cluster Overview
-      </button>
-      <button class="nav-tab-btn" data-view="lab">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><polygon points="6 2 18 2 18 6 6 6 6 2"></polygon><line x1="3" y1="6" x2="21" y2="6"></line><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-        Scenario Lab (75)
-      </button>
-      <button class="nav-tab-btn" data-view="history">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-        Run History
-      </button>
-    </nav>
+    <!-- Brand and Navigation -->
+    <div style="flex:1;"></div>
 
-    <!-- Header Actions -->
     <div class="header-actions">
-      <div class="scenario-selector-wrap">
-        <label for="select-scenario" class="sr-only">Select Preset Scenario</label>
-        <select id="select-scenario" class="filter-select select-scenario-main" aria-label="Select Scenario">
-          <!-- Populated dynamically via API (75 scenarios) -->
-        </select>
-      </div>
-
-      <div class="sim-window-box" style="display:flex; align-items:center; gap:5px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; padding:2px 8px;" title="Override Decision Window duration for simulation workloads">
-        <span style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase;">Window:</span>
-        <input type="number" id="sim-custom-window" class="form-input" style="width:55px; height:24px; padding:1px 4px; font-size:11px; text-align:right;" value="60" min="5" step="10" placeholder="60">
-        <span style="font-size:11px; color:var(--text-dim);">s</span>
-        <button id="btn-apply-sim-window" class="btn btn-subtle" style="height:24px; padding:1px 6px; font-size:11px;" title="Apply custom window to simulation">Set</button>
-      </div>
-
-      <button id="btn-modal-add-node" class="btn btn-subtle" title="Add synthetic node">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Node
-      </button>
-
-      <button id="btn-modal-add-workload" class="btn btn-subtle" title="Add synthetic workload">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Workload
-      </button>
-
-      <button id="btn-modal-custom-scenario" class="btn btn-subtle" title="Open Custom Scenario Builder">
-        <svg class="icon-svg sm" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-        Custom Scenario
-      </button>
-
       <button id="btn-top-reclaim-config" class="btn btn-subtle" title="Configure 9-Factor Reclaim Policy Weights &amp; Thresholds" onclick="window.clusterCtrl && window.clusterCtrl.openConfigModal()">
         <svg class="icon-svg sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         Reclaim Policy
-      </button>
-
-      <button id="btn-run-sim" class="btn btn-simulate">
-        <svg class="icon-svg sm btn-sim-icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-        <span id="btn-run-sim-text">RUN SIMULATION</span>
       </button>
     </div>
   </header>
@@ -199,7 +147,7 @@
   <main class="main-content">
 
     <!-- VIEW 1: CLUSTER OVERVIEW (Part 6) -->
-    <div class="view-panel active" data-view-panel="overview">
+    <div class="view-panel" data-view-panel="overview">
 
       <!-- Executive Metrics Grouping (Part 6) -->
       <section class="executive-metrics-grid" aria-label="Executive Metrics">
@@ -614,6 +562,116 @@
             </thead>
             <tbody id="cluster-workloads-tbody">
               <!-- Populated dynamically via cluster.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 5: LIVE TRAFFIC SIMULATION & SCHEDULER DECISION MONITOR -->
+    <div class="view-panel active" data-view-panel="traffic" id="view-panel-traffic">
+      <div class="section-bar">
+        <div class="section-title-group">
+          <h2 class="section-title">Live Traffic and Scheduler Monitor</h2>
+          <span class="section-subtitle-tag">[Multi-Signal Idle Classification &bull; 9-Factor Reclaim Evaluation &bull; Scale-from-Zero Demand Restoration]</span>
+        </div>
+      </div>
+
+      <!-- Interactive Traffic Control Card -->
+      <section class="traffic-control-bar" aria-label="Traffic Control &amp; Generator">
+        <div class="traffic-ctrl-group">
+          <div class="traffic-status-pill idle" id="traffic-status-indicator">
+            <span class="status-dot"></span>
+            <span id="traffic-status-text">TRAFFIC: IDLE (STOPPED)</span>
+          </div>
+          <div class="traffic-buttons-group">
+            <button id="btn-traffic-start" class="btn btn-simulate" style="background:#10b981; border-color:#10b981;" title="Start continuous user traffic stream">
+              <svg class="icon-svg sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              <span>Start Traffic</span>
+            </button>
+            <button id="btn-traffic-stop" class="btn btn-subtle" style="border-color:#ef4444; color:#ef4444;" title="Halt all traffic to allow pods to go idle">
+              <svg class="icon-svg sm" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"></rect></svg>
+              <span>Stop Traffic (Idle)</span>
+            </button>
+            <button id="btn-traffic-burst" class="btn btn-subtle" title="Send a quick burst of 20 requests">
+              <svg class="icon-svg sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              <span>Burst 20 Reqs</span>
+            </button>
+            <button id="btn-traffic-wake" class="btn btn-subtle" style="border-color:#38bdf8; color:#38bdf8;" title="Send request via Activator to restore dormant workload">
+              <svg class="icon-svg sm" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+              <span>Wake Workload (Restore)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Telemetry Stats Group -->
+        <div class="traffic-stats-strip">
+          <div class="traffic-stat-item">
+            <span class="traffic-stat-lbl">Target Ingress</span>
+            <span id="traffic-target-url" class="traffic-stat-val mono">http://localhost:8088</span>
+          </div>
+          <div class="traffic-stat-item">
+            <span class="traffic-stat-lbl">Requests Sent</span>
+            <span id="traffic-stat-sent" class="traffic-stat-val mono">0</span>
+          </div>
+          <div class="traffic-stat-item">
+            <span class="traffic-stat-lbl">Success / Errors</span>
+            <span class="traffic-stat-val mono"><span id="traffic-stat-success" style="color:#10b981;">0</span> / <span id="traffic-stat-errors" style="color:#ef4444;">0</span></span>
+          </div>
+          <div class="traffic-stat-item">
+            <span class="traffic-stat-lbl">Live QPS</span>
+            <span id="traffic-stat-qps" class="traffic-stat-val mono highlight">0.0</span>
+          </div>
+          <div class="traffic-stat-item">
+            <span class="traffic-stat-lbl">Fully Reclaimed</span>
+            <span id="traffic-stat-reclaimed" class="traffic-stat-val mono highlight" style="color:#c084fc;">0</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pods Toolbar -->
+      <div class="cluster-action-bar">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="bold" style="font-size:13px;">Active Workloads Telemetry &amp; Decisions</span>
+          <span style="font-size:12px; color:var(--text-dim);">Live status from metrics collector &amp; authoritative scheduler engine</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase;">Namespace:</span>
+            <input type="text" id="traffic-input-namespace" class="form-input" style="width:130px; height:26px; padding:2px 8px; font-size:12px;" value="test-application" placeholder="all or namespace" title="Enter namespace (e.g. test-application, or leave empty for all)">
+          </div>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); cursor:pointer;">
+            <input type="checkbox" id="traffic-auto-poll" checked style="cursor:pointer;">
+            <span>Auto-refresh (2s)</span>
+          </label>
+          <button id="btn-traffic-refresh" class="btn btn-simulate">
+            <svg class="icon-svg sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            Refresh Now
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Pods & Scheduler Decision Table -->
+      <div class="table-panel">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Workload / Pod</th>
+                <th>Namespace</th>
+                <th>Metrics Status</th>
+                <th>Scheduler Decision</th>
+                <th>Reclaim Score</th>
+                <th>CPU (Used / Req)</th>
+                <th>Memory (Used / Req)</th>
+                <th>Live QPS</th>
+                <th>Idle Duration</th>
+                <th>Workload State</th>
+                <th style="text-align: right;">Analysis</th>
+              </tr>
+            </thead>
+            <tbody id="traffic-workloads-tbody">
+              <!-- Populated dynamically via traffic.js -->
             </tbody>
           </table>
         </div>
@@ -1050,47 +1108,46 @@
     <div class="modal-box">
       <div class="modal-header">
         <div>
-          <span id="modal-config-title" class="modal-title">Reclaim Policy Configuration</span>
-          <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Config file: <code class="mono">config/reclaim_policy.json</code> (Trained Weights)</div>
+          <span id="modal-config-title" class="modal-title">Active Scheduler Policy</span>
+          <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Dynamic ML-Trained Policy from <code class="mono">adaptive-scheduler</code> (Read-Only)</div>
         </div>
         <button type="button" class="drawer-close-btn modal-close" onclick="document.getElementById('modal-reclaim-config').classList.remove('active')">
           <svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
-      <form id="form-reclaim-config">
+      <form id="form-reclaim-config" onsubmit="event.preventDefault(); document.getElementById('modal-reclaim-config').classList.remove('active');">
         <div class="modal-body">
           <div class="form-section-title">Score Action Thresholds [0.0 - 1.0]</div>
           <div class="form-grid-2">
             <div class="form-field">
               <label class="form-label">Full Reclaim Threshold (CRIU)</label>
-              <input type="number" id="cfg-full-reclaim" class="form-input mono" step="0.01" min="0" max="1" required>
+              <input type="number" id="cfg-full-reclaim" class="form-input mono" step="0.01" min="0" max="1" readonly>
             </div>
             <div class="form-field">
               <label class="form-label">Soft Reclaim Threshold</label>
-              <input type="number" id="cfg-soft-reclaim" class="form-input mono" step="0.01" min="0" max="1" required>
+              <input type="number" id="cfg-soft-reclaim" class="form-input mono" step="0.01" min="0" max="1" readonly>
             </div>
           </div>
 
-          <div class="form-section-title" style="margin-top:12px;">9-Factor Scoring Weights (Must Sum to ~1.0)</div>
+          <div class="form-section-title" style="margin-top:12px;">9-Factor Scoring Weights (Sum = 1.0)</div>
           <div class="form-grid-3">
-            <div class="form-field"><label class="form-label">CPU (R_CPU)</label><input type="number" id="cfg-w-cpu" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">Memory (R_Mem)</label><input type="number" id="cfg-w-mem" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">Idle (R_Idle)</label><input type="number" id="cfg-w-idle" class="form-input mono" step="0.01" min="0" max="1" required></div>
+            <div class="form-field"><label class="form-label">CPU (R_CPU)</label><input type="number" id="cfg-w-cpu" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">Memory (R_Mem)</label><input type="number" id="cfg-w-mem" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">Idle (R_Idle)</label><input type="number" id="cfg-w-idle" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
           </div>
           <div class="form-grid-3">
-            <div class="form-field"><label class="form-label">Benefit (R_Ben)</label><input type="number" id="cfg-w-benefit" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">Replica (R_Rep)</label><input type="number" id="cfg-w-replica" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">Priority (R_Prio)</label><input type="number" id="cfg-w-priority" class="form-input mono" step="0.01" min="0" max="1" required></div>
+            <div class="form-field"><label class="form-label">Benefit (R_Ben)</label><input type="number" id="cfg-w-benefit" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">Replica (R_Rep)</label><input type="number" id="cfg-w-replica" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">Priority (R_Prio)</label><input type="number" id="cfg-w-priority" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
           </div>
           <div class="form-grid-3">
-            <div class="form-field"><label class="form-label">PDB (R_PDB)</label><input type="number" id="cfg-w-pdb" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">State (R_State)</label><input type="number" id="cfg-w-state" class="form-input mono" step="0.01" min="0" max="1" required></div>
-            <div class="form-field"><label class="form-label">Checkpoint (R_Chk)</label><input type="number" id="cfg-w-chk" class="form-input mono" step="0.01" min="0" max="1" required></div>
+            <div class="form-field"><label class="form-label">PDB (R_PDB)</label><input type="number" id="cfg-w-pdb" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">State (R_State)</label><input type="number" id="cfg-w-state" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
+            <div class="form-field"><label class="form-label">Checkpoint (R_Chk)</label><input type="number" id="cfg-w-chk" class="form-input mono" step="0.01" min="0" max="1" readonly></div>
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-subtle" onclick="document.getElementById('modal-reclaim-config').classList.remove('active')">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save &amp; Reload Policy</button>
+          <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-reclaim-config').classList.remove('active')">Close</button>
         </div>
       </form>
     </div>

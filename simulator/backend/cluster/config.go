@@ -147,19 +147,40 @@ func (c *ReclaimConfig) ToPolicy() *decision.Policy {
 	return p
 }
 
-// DefaultReclaimConfig returns in-memory defaults matching the trained policy.
-func DefaultReclaimConfig() *ReclaimConfig {
+// FromPolicy converts a *decision.Policy into a ReclaimConfig representation.
+func FromPolicy(p *decision.Policy) *ReclaimConfig {
+	if p == nil {
+		p = decision.DefaultPolicy()
+	}
 	return &ReclaimConfig{
-		Thresholds: ThresholdConfig{FullReclaim: 0.75, SoftReclaim: 0.50},
+		Thresholds: ThresholdConfig{
+			FullReclaim: p.FullReclaimScoreThreshold,
+			SoftReclaim: p.SoftReclaimScoreThreshold,
+		},
 		Weights: WeightConfig{
-			CPU: 0.20, Memory: 0.20, Idle: 0.15, Benefit: 0.15,
-			Replica: 0.10, Priority: 0.05, PDB: 0.05, State: 0.05, Checkpoint: 0.05,
+			CPU:        p.WeightCPU,
+			Memory:     p.WeightMemory,
+			Idle:       p.WeightIdle,
+			Benefit:    p.WeightBenefit,
+			Replica:    p.WeightReplica,
+			Priority:   p.WeightPriority,
+			PDB:        p.WeightPDB,
+			State:      p.WeightState,
+			Checkpoint: p.WeightCheckpoint,
 		},
 		Normalization: NormalizationConfig{
-			IdleMaxDurationSec:  60.0,
-			BenefitMaxCPUMillis: 2000.0,
-			BenefitMaxMemBytes:  4 * 1024 * 1024 * 1024,
+			IdleMaxDurationSec:  p.IdleMaxDurationSec,
+			BenefitMaxCPUMillis: p.BenefitMaxCPUMillis,
+			BenefitMaxMemBytes:  p.BenefitMaxMemBytes,
 		},
-		Safety: SafetyConfig{MaxPriorityForReclaim: 100000, MinReplicasRequired: 1},
+		Safety: SafetyConfig{
+			MaxPriorityForReclaim: p.MaxPriorityForReclaim,
+			MinReplicasRequired:   p.MinReplicasRequired,
+		},
 	}
+}
+
+// DefaultReclaimConfig returns in-memory defaults matching the ML-trained adaptive scheduler policy.
+func DefaultReclaimConfig() *ReclaimConfig {
+	return FromPolicy(decision.DefaultPolicy())
 }

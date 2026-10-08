@@ -4,32 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/decision"
 )
 
-func TestLoadReclaimConfig_Valid(t *testing.T) {
-	path := "../../config/reclaim_policy.json"
-	if _, err := os.Stat(path); err != nil {
-		path = "../../../simulator/config/reclaim_policy.json"
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("config file not found at %s: %v", path, err)
-	}
+func TestDefaultReclaimConfig_MatchesPolicy(t *testing.T) {
+	expectedPolicy := decision.DefaultPolicy()
+	cfg := DefaultReclaimConfig()
 
-	cfg, err := LoadReclaimConfig(path)
-	if err != nil {
-		t.Fatalf("expected valid config, got: %v", err)
+	if cfg.Thresholds.FullReclaim != expectedPolicy.FullReclaimScoreThreshold {
+		t.Errorf("expected full_reclaim=%v, got %v", expectedPolicy.FullReclaimScoreThreshold, cfg.Thresholds.FullReclaim)
 	}
-
-	if cfg.Thresholds.FullReclaim != 0.75 {
-		t.Errorf("expected full_reclaim=0.75, got %v", cfg.Thresholds.FullReclaim)
+	if cfg.Thresholds.SoftReclaim != expectedPolicy.SoftReclaimScoreThreshold {
+		t.Errorf("expected soft_reclaim=%v, got %v", expectedPolicy.SoftReclaimScoreThreshold, cfg.Thresholds.SoftReclaim)
 	}
-	if cfg.Thresholds.SoftReclaim != 0.50 {
-		t.Errorf("expected soft_reclaim=0.50, got %v", cfg.Thresholds.SoftReclaim)
+	if cfg.Weights.CPU != expectedPolicy.WeightCPU {
+		t.Errorf("expected CPU weight=%v, got %v", expectedPolicy.WeightCPU, cfg.Weights.CPU)
 	}
-
-	pol := cfg.ToPolicy()
-	if pol.WeightCPU != 0.20 || pol.WeightMemory != 0.20 {
-		t.Errorf("policy weights mismatch: CPU=%v, Mem=%v", pol.WeightCPU, pol.WeightMemory)
+	if cfg.Weights.Memory != expectedPolicy.WeightMemory {
+		t.Errorf("expected Memory weight=%v, got %v", expectedPolicy.WeightMemory, cfg.Weights.Memory)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("DefaultReclaimConfig failed validation: %v", err)
 	}
 }
 

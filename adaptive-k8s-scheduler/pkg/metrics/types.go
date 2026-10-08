@@ -57,6 +57,7 @@ type PodMetrics struct {
 	Name              string                  `json:"name"`
 	UID               types.UID               `json:"uid"`
 	NodeName          string                  `json:"nodeName"`
+	SchedulerName     string                  `json:"schedulerName"`
 	Phase             corev1.PodPhase         `json:"phase"`
 	RestartPolicy     corev1.RestartPolicy    `json:"restartPolicy"`
 	ContainerExitCode int32                   `json:"containerExitCode,omitempty"`
@@ -234,8 +235,8 @@ func DefaultCollectorConfig() *CollectorConfig {
 		HTTPTimeout:      5 * time.Second,
 		WindowSize:       5, // 5 samples * 10s = 50s sliding window
 		IdleCPUThreshold: 20.0,
-		IdleNetThreshold: 10240.0,
-		IdleQPSThreshold: 0.1,
+		IdleNetThreshold: 15360.0,
+		IdleQPSThreshold: 2.0,
 		IdleMinDuration:  60 * time.Second,
 		HTTPPort:         8081,
 	}

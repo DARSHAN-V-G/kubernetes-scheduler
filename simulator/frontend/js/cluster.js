@@ -205,8 +205,11 @@ export class ClusterController {
     }
 
     try {
-      const winParam = this.customWindowSeconds ? `?window=${this.customWindowSeconds}` : "";
-      const resp = await fetch(`/api/workloads${winParam}`);
+      const nsInput = document.getElementById("traffic-input-namespace");
+      const ns = nsInput ? nsInput.value.trim() : "test-application";
+      const nsParam = ns ? `&namespace=${encodeURIComponent(ns)}` : "";
+      const winParam = this.customWindowSeconds ? `window=${this.customWindowSeconds}` : "window=60";
+      const resp = await fetch(`/api/workloads?${winParam}${nsParam}`);
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const raw = await resp.json();
       const rawList = Array.isArray(raw) ? raw : (raw.workloads || []);
@@ -251,7 +254,7 @@ export class ClusterController {
           capabilities: sim.capabilities || {},
           decisionReasons: sim.decisionReasons || life.decisionReasons || [],
           rejectionReasons: sim.rejectionReasons || [],
-          lifecycleState: life.state || "RUNNING",
+          lifecycleState: life.state || (sim.phase === "Reclaimed" ? "RECLAIMED" : "RUNNING"),
           stateDetail: life.stateDetail || "",
           lastError: life.lastError || "",
           checkpointPath: life.checkpointPath || "",
@@ -420,13 +423,13 @@ export class ClusterController {
       const actionBadge = this.formatActionBadge(w.action);
       const scoreFmt = (w.score !== undefined && w.score !== null) ? Number(w.score).toFixed(3) : "-";
       const isCandidate = (w.lifecycleState === "CANDIDATE" || w.action === "FULL_RECLAIM" || w.action === "SOFT_RECLAIM") && w.lifecycleState !== "RECLAIMED";
-      const isReclaimed = (w.lifecycleState === "RECLAIMED" || w.lifecycleState === "CHECKPOINTED");
+      const isReclaimed = (w.lifecycleState === "RECLAIMED" || w.lifecycleState === "CHECKPOINTED" || w.phase === "Reclaimed");
       const isRunning = w.phase === "Running";
       const canCheckpoint = w.checkpointable;
 
       let actionButtons = "";
       if (isReclaimed) {
-        actionButtons = `<button class="btn btn-sm btn-restore" onclick="window.clusterCtrl.restoreWorkload('${w.namespace}', '${w.name}')">Restore</button>`;
+        actionButtons = `<button class="btn btn-sm btn-restore" style="background:#8b5cf6; color:#fff; border:1px solid #a78bfa;" onclick="window.clusterCtrl.restoreWorkload('${w.namespace}', '${w.name}')">Restore</button>`;
       } else if (w.lifecycleState === "CHECKPOINTING") {
         actionButtons = `<span class="mono" style="font-size: 11px; color: var(--color-brand);">CHECKPOINTING...</span>`;
       } else if (w.lifecycleState === "RECLAMATION_FAILED" && isRunning && canCheckpoint) {
@@ -434,7 +437,7 @@ export class ClusterController {
       } else if (!isRunning) {
         actionButtons = `<span class="mono" style="font-size: 11px; color: var(--text-dim);" title="Checkpoint requires a Running pod">Unavailable: ${w.phase}</span>`;
       } else if (!canCheckpoint) {
-        actionButtons = `<span class="mono" style="font-size: 11px; color: var(--text-dim);" title="Pod is not annotated as checkpointable">Unavailable: not checkpointable</span>`;
+        actionButtons = `<button class="btn btn-sm btn-checkpoint" onclick="window.clusterCtrl.checkpointWorkload('${w.namespace}', '${w.name}')" title="Execute Graceful Reclaim (Scale to 0)">Graceful Reclaim</button>`;
       } else {
         actionButtons = `<button class="btn btn-sm btn-checkpoint" onclick="window.clusterCtrl.checkpointWorkload('${w.namespace}', '${w.name}')">Checkpoint &amp; Reclaim</button>`;
       }
@@ -637,6 +640,96 @@ export class ClusterController {
     }
   }
 
+  openScoreDrawer(rawItem) {
+    if (!rawItem) return;
+    const sim = rawItem.simulation || rawItem;
+    const life = rawItem.lifecycle || {};
+
+    const podName = document.getElementById("drawer-pod-name");
+    const podMeta = document.getElementById("drawer-pod-meta");
+    const vClass = document.getElementById("drawer-verdict-class");
+    const vScore = document.getElementById("drawer-verdict-score");
+    const vAction = document.getElementById("drawer-verdict-action");
+    const vSafety = document.getElementById("drawer-verdict-safety");
+    const capFull = document.getElementById("drawer-cap-full");
+    const capSoft = document.getElementById("drawer-cap-soft");
+
+    const name = sim.name || life.name || "Unknown";
+    const ns = sim.namespace || life.namespace || "ecommerce";
+    const node = sim.nodeName || "adaptive-cluster-control-plane";
+    const kind = sim.ownerKind || "Deployment";
+
+    if (podName) podName.textContent = name;
+    if (podMeta) podMeta.innerHTML = `Namespace: ${ns} &bull; Node: ${node} &bull; Kind: ${kind}`;
+
+    let clsStr = "ACTIVE";
+    if (sim.classification === 2 || sim.classification === "IDLE" || sim.classification === "ClassIdle") clsStr = "IDLE";
+    else if (sim.classification === 1 || sim.classification === "LOW_USAGE" || sim.classification === "ClassLowUsage") clsStr = "LOW_USAGE";
+    const classBadgeClass = clsStr === "ACTIVE" ? "badge-active" : (clsStr === "LOW_USAGE" ? "badge-low" : "badge-idle");
+
+    let actionStr = life.action;
+    if (!actionStr) {
+      if (sim.action === 2 || sim.action === "FULL_RECLAIM") actionStr = "FULL_RECLAIM";
+      else if (sim.action === 1 || sim.action === "SOFT_RECLAIM") actionStr = "SOFT_RECLAIM";
+      else actionStr = "KEEP";
+    }
+    const actionBadgeClass = actionStr === "FULL_RECLAIM" ? "badge-full" : (actionStr === "SOFT_RECLAIM" ? "badge-soft" : "badge-keep");
+
+    if (vClass) vClass.innerHTML = `<span class="status-badge ${classBadgeClass}">${clsStr}</span>`;
+    const scoreVal = (life.score !== undefined && life.score !== null) ? life.score : (sim.score || 0);
+    if (vScore) vScore.textContent = Number(scoreVal).toFixed(4);
+    if (vAction) vAction.innerHTML = `<span class="status-badge ${actionBadgeClass}">${actionStr}</span>`;
+
+    const caps = sim.capabilities || {};
+    const fullAllowed = caps.fullReclaimAllowed !== false;
+    const softAllowed = caps.softReclaimAllowed !== false;
+    if (vSafety) {
+      vSafety.innerHTML = (fullAllowed || softAllowed)
+        ? `<span class="badge-safety-pass">PASSED</span>`
+        : `<span class="badge-safety-block">BLOCKED</span>`;
+    }
+    if (capFull) {
+      capFull.textContent = fullAllowed ? "AVAILABLE" : "BLOCKED";
+      capFull.className = fullAllowed ? "badge-safety-pass" : "badge-safety-block";
+    }
+    if (capSoft) {
+      capSoft.textContent = softAllowed ? "AVAILABLE" : "BLOCKED";
+      capSoft.className = softAllowed ? "badge-safety-pass" : "badge-safety-block";
+    }
+
+    // Populate decision rationale lists
+    const ulDecision = document.getElementById("drawer-reasons-decision");
+    if (ulDecision) {
+      ulDecision.innerHTML = "";
+      const reasons = sim.decisionReasons || life.decisionReasons || [];
+      if (reasons.length === 0) {
+        ulDecision.innerHTML = `<li class="reason-li info">Workload operating under normal load &mdash; no reclaim required</li>`;
+      } else {
+        for (const r of reasons) {
+          ulDecision.innerHTML += `<li class="reason-li positive"><svg class="icon-svg sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg><span>${r}</span></li>`;
+        }
+      }
+    }
+
+    const ulRejection = document.getElementById("drawer-reasons-rejection");
+    if (ulRejection) {
+      ulRejection.innerHTML = "";
+      const rejections = sim.rejectionReasons || [];
+      if (rejections.length === 0) {
+        ulRejection.innerHTML = `<li class="reason-li info"><svg class="icon-svg sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Safety criteria passed &mdash; zero gating restrictions active</span></li>`;
+      } else {
+        for (const r of rejections) {
+          ulRejection.innerHTML += `<li class="reason-li negative"><svg class="icon-svg sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>${r}</span></li>`;
+        }
+      }
+    }
+
+    const drawer = document.getElementById("drawer-panel");
+    const backdrop = document.getElementById("drawer-backdrop");
+    if (drawer) drawer.classList.add("open");
+    if (backdrop) backdrop.classList.add("active");
+  }
+
   async openConfigModal() {
     const modal = document.getElementById("modal-reclaim-config");
     if (!modal) return;
@@ -675,55 +768,9 @@ export class ClusterController {
     }
   }
 
-  async handleSaveConfig(e) {
-    e.preventDefault();
-    const getVal = (id, fallbackId) => {
-      const el = document.getElementById(id) || (fallbackId ? document.getElementById(fallbackId) : null);
-      return el ? parseFloat(el.value) : 0;
-    };
-
-    const payload = {
-      weights: {
-        cpu: getVal("cfg-w-cpu"),
-        memory: getVal("cfg-w-mem"),
-        idle: getVal("cfg-w-idle"),
-        benefit: getVal("cfg-w-benefit"),
-        replica: getVal("cfg-w-replica"),
-        priority: getVal("cfg-w-priority"),
-        pdb: getVal("cfg-w-pdb"),
-        state: getVal("cfg-w-state"),
-        checkpoint: getVal("cfg-w-checkpoint", "cfg-w-chk"),
-      },
-      thresholds: {
-        full_reclaim: getVal("cfg-full-reclaim"),
-        soft_reclaim: getVal("cfg-soft-reclaim"),
-      },
-      normalization: this.currentConfig?.normalization || {
-        idle_max_duration_sec: 60,
-        benefit_max_cpu_millis: 2000,
-        benefit_max_mem_bytes: 4294967296,
-      },
-      safety: this.currentConfig?.safety || {
-        max_priority_for_reclaim: 100000,
-        min_replicas_required: 0,
-      },
-    };
-
-    try {
-      const resp = await fetch("/api/reclaim/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error || ("HTTP " + resp.status));
-      }
-      document.getElementById("modal-reclaim-config").classList.remove("active");
-      await this.refresh();
-    } catch (err) {
-      console.error("Save config error:", err);
-      alert("Failed to save reclaim policy: " + err.message);
-    }
+  handleSaveConfig(e) {
+    if (e) e.preventDefault();
+    const modal = document.getElementById("modal-reclaim-config");
+    if (modal) modal.classList.remove("active");
   }
 }

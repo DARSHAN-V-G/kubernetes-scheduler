@@ -1,6 +1,10 @@
 package detector
 
-import "time"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 // Config holds all tunable thresholds for the Idle Classifier / Detector.
 // Initial values correspond to the project implementation plan specification.
@@ -12,15 +16,15 @@ type Config struct {
 
 	// MemoryIdleThresholdPct is the maximum memory utilization (fraction of requested)
 	// below which the memory signal is considered idle.
-	MemoryIdleThresholdPct float64 // default: 0.30
+	MemoryIdleThresholdPct float64 // default: 0.80
 
 	// QPSIdleThreshold is the maximum average QPS at which the QPS signal is idle.
-	// Strictly: AvgQPS <= QPSIdleThreshold → idle.
-	QPSIdleThreshold float64 // default: 0.1
+	// Calibrated to 2.0 to filter internal Kubelet readiness/liveness health checks.
+	QPSIdleThreshold float64 // default: 2.0
 
 	// NetIdleThresholdBytes is the maximum average network bytes/sec below which
 	// the network signal is considered idle.
-	NetIdleThresholdBytes float64 // default: 10240.0 (10 KB/s)
+	NetIdleThresholdBytes float64 // default: 15360.0 (15 KB/s)
 
 	// MinIdleDuration is the minimum continuous idle time required before a workload
 	// can be classified as IDLE rather than LOW_USAGE.
@@ -32,15 +36,43 @@ type Config struct {
 	MinSampleCount int // default: 3
 }
 
-// DefaultConfig returns the standard Detector configuration matching the project
-// implementation plan defaults.
+// DefaultConfig returns the standard Detector configuration matching calibrated defaults
+// and environment variable overrides.
 func DefaultConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		CPUIdleThresholdPct:    0.30,
-		MemoryIdleThresholdPct: 0.30,
-		QPSIdleThreshold:       0.1,
-		NetIdleThresholdBytes:  10240.0,
+		MemoryIdleThresholdPct: 0.80,
+		QPSIdleThreshold:       2.0,
+		NetIdleThresholdBytes:  15360.0,
 		MinIdleDuration:        30 * time.Second,
 		MinSampleCount:         3,
 	}
+
+	if val := os.Getenv("IDLE_CPU_THRESHOLD_PCT"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f > 0 {
+			cfg.CPUIdleThresholdPct = f
+		}
+	}
+	if val := os.Getenv("IDLE_MEM_THRESHOLD_PCT"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f > 0 {
+			cfg.MemoryIdleThresholdPct = f
+		}
+	}
+	if val := os.Getenv("IDLE_QPS_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f >= 0 {
+			cfg.QPSIdleThreshold = f
+		}
+	}
+	if val := os.Getenv("IDLE_NET_THRESHOLD_BYTES"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f >= 0 {
+			cfg.NetIdleThresholdBytes = f
+		}
+	}
+	if val := os.Getenv("IDLE_MIN_DURATION_SECONDS"); val != "" {
+		if s, err := strconv.Atoi(val); err == nil && s > 0 {
+			cfg.MinIdleDuration = time.Duration(s) * time.Second
+		}
+	}
+
+	return cfg
 }

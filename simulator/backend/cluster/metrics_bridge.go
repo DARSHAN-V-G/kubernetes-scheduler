@@ -102,7 +102,8 @@ func (mb *MetricsBridge) EnrichWorkloads(ctx context.Context, workloads []models
 		}
 
 		// 5. Idle evaluation heuristics from live telemetry
-		isCurrentlyIdle := (w.UsageCPUMillicores < 20.0) && (w.NetworkBytesPerSec < 10240)
+		// Uses calibrated noise-filtering thresholds: QPS <= 2.0 (probe noise), Net < 15KB/s, CPU < 50m
+		isCurrentlyIdle := (w.UsageCPUMillicores < 50.0) && (w.NetworkBytesPerSec < 15360) && (w.RequestQPS <= 2.0)
 		w.IsIdle = isCurrentlyIdle
 		if isCurrentlyIdle {
 			if w.IdleDurationSeconds == 0 {

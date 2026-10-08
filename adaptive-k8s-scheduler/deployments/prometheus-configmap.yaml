@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: adaptive-scheduler-prom-config
-  namespace: kube-system
+  namespace: adaptive-scheduler
   labels:
     app: adaptive-scheduler
 data:

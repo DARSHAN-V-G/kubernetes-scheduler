@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: adaptive-scheduler-sa
-  namespace: kube-system
+  namespace: adaptive-scheduler
   labels:
     app: adaptive-scheduler
 ---
@@ -96,4 +96,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: adaptive-scheduler-sa
-    namespace: kube-system
+    namespace: adaptive-scheduler

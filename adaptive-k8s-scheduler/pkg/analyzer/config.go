@@ -22,11 +22,11 @@ type Config struct {
 	IdleCPUMillicores float64
 
 	// IdleNetBytesPerSec is the per-sample network threshold (bytes/sec) for the
-	// consistency check. Default: 10240.0 (10 KB/s).
+	// consistency check. Default: 15360.0 (15 KB/s).
 	IdleNetBytesPerSec float64
 
 	// IdleQPSThreshold is the per-sample QPS threshold for the consistency check.
-	// Default: 0.1.
+	// Default: 2.0 (filters out Kubelet probe ping rates).
 	IdleQPSThreshold float64
 }
 
@@ -38,7 +38,7 @@ func DefaultConfig() *Config {
 		TrendRisingDelta:   0.20,
 		TrendFallingDelta:  0.20,
 		IdleCPUMillicores:  20.0,
-		IdleNetBytesPerSec: 10240.0,
-		IdleQPSThreshold:   0.1,
+		IdleNetBytesPerSec: 15360.0,
+		IdleQPSThreshold:   2.0,
 	}
 }

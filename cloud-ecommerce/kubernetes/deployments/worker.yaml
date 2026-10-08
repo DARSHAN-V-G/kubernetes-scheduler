@@ -5,6 +5,10 @@ metadata:
   namespace: ecommerce
   labels:
     app: worker
+  annotations:
+    reclaim.io/checkpointable: "true"
+    reclaim.io/depends-on: "redis"
+    reclaim.io/app: "ecommerce"
 spec:
   replicas: 1
   selector:
@@ -15,6 +19,10 @@ spec:
       labels:
         app: worker
         scheduler.reclaim/class: "A"
+      annotations:
+        reclaim.io/checkpointable: "true"
+        reclaim.io/depends-on: "redis"
+        reclaim.io/app: "ecommerce"
     spec:
       containers:
         - name: worker

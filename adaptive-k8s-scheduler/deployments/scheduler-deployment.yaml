@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: adaptive-scheduler
-  namespace: kube-system
+  namespace: adaptive-scheduler
   labels:
     app: adaptive-scheduler
 spec:
@@ -72,13 +72,15 @@ spec:
             - "--scheduler-name=adaptive-scheduler"
             - "--leader-elect=true"
             - "--leader-elect-resource-name=adaptive-scheduler"
-            - "--leader-elect-resource-namespace=kube-system"
+            - "--leader-elect-resource-namespace=adaptive-scheduler"
             - "--prometheus-url=http://127.0.0.1:9090"
             - "--scrape-interval=10s"
             - "--http-port=8081"
           ports:
             - containerPort: 8081
               name: http-api
+            - containerPort: 8083
+              name: activator
           volumeMounts:
             - name: checkpoints-volume
               mountPath: /var/lib/kubelet/checkpoints
@@ -105,8 +107,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: adaptive-scheduler-service
-  namespace: kube-system
+  name: adaptive-scheduler
+  namespace: adaptive-scheduler
   labels:
     app: adaptive-scheduler
 spec:
@@ -114,9 +116,35 @@ spec:
     - name: http-api
       port: 8081
       targetPort: 8081
+    - name: activator
+      port: 8083
+      targetPort: 8083
     - name: prometheus
       port: 9090
       targetPort: 9090
   selector:
     app: adaptive-scheduler
   type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adaptive-scheduler-service
+  namespace: adaptive-scheduler
+  labels:
+    app: adaptive-scheduler
+spec:
+  ports:
+    - name: http-api
+      port: 8081
+      targetPort: 8081
+    - name: activator
+      port: 8083
+      targetPort: 8083
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+  selector:
+    app: adaptive-scheduler
+  type: ClusterIP
+

@@ -13,6 +13,7 @@ import (
 type APIHandler struct {
 	runner  *simulation.PipelineRunner
 	cluster *ClusterAPIHandler
+	traffic *TrafficAPIHandler
 }
 
 // NewAPIHandler constructs a handler with the shared PipelineRunner.
@@ -20,13 +21,19 @@ func NewAPIHandler() *APIHandler {
 	runner := simulation.NewPipelineRunner()
 	return &APIHandler{
 		runner:  runner,
-		cluster: NewClusterAPIHandler(runner, "config/reclaim_policy.json"),
+		cluster: NewClusterAPIHandler(runner),
+		traffic: NewTrafficAPIHandler(),
 	}
 }
 
 // Cluster returns the cluster API handler.
 func (h *APIHandler) Cluster() *ClusterAPIHandler {
 	return h.cluster
+}
+
+// Traffic returns the traffic simulation API handler.
+func (h *APIHandler) Traffic() *TrafficAPIHandler {
+	return h.traffic
 }
 
 // EnableCORS sets headers to allow local cross-origin development if needed.

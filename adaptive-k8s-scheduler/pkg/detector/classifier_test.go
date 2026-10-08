@@ -38,18 +38,18 @@ func TestClassify_Active_HighCPU(t *testing.T) {
 }
 
 func TestClassify_Active_QPSAboveZero(t *testing.T) {
-	// CPU and memory are idle, but QPS > 0 → workload is serving requests → ACTIVE.
+	// CPU and memory are idle, but QPS > threshold → workload is serving active user requests → ACTIVE.
 	p := idleProfile()
-	p.AvgQPS = 1.5
+	p.AvgQPS = 5.0
 	result := Classify(p, DefaultConfig())
 	if result.Class != ClassActive {
-		t.Errorf("QPS > 0: expected ACTIVE, got %s", result.Class)
+		t.Errorf("QPS > threshold: expected ACTIVE, got %s", result.Class)
 	}
 }
 
 func TestClassify_Active_HighNetwork(t *testing.T) {
 	p := idleProfile()
-	p.AvgNetworkBytesPerSec = 50000 // 50 KB/s — above 10240 threshold
+	p.AvgNetworkBytesPerSec = 50000 // 50 KB/s — above 15360 threshold
 	result := Classify(p, DefaultConfig())
 	if result.Class != ClassActive {
 		t.Errorf("high network: expected ACTIVE, got %s", result.Class)
@@ -58,7 +58,7 @@ func TestClassify_Active_HighNetwork(t *testing.T) {
 
 func TestClassify_Active_HighMemory(t *testing.T) {
 	p := idleProfile()
-	p.MemoryUtilization = 0.70 // 70% — above 30% threshold
+	p.MemoryUtilization = 0.90 // 90% — above 80% threshold
 	result := Classify(p, DefaultConfig())
 	if result.Class != ClassActive {
 		t.Errorf("high memory: expected ACTIVE, got %s", result.Class)
@@ -122,7 +122,7 @@ func TestClassify_CPUThresholdBoundary_JustBelowThreshold(t *testing.T) {
 
 func TestClassify_MemoryThresholdBoundary_ExactlyAtThreshold_NotIdle(t *testing.T) {
 	p := idleProfile()
-	p.MemoryUtilization = 0.30 // exactly at threshold → ACTIVE
+	p.MemoryUtilization = 0.80 // exactly at threshold → ACTIVE
 	result := Classify(p, DefaultConfig())
 	if result.Class != ClassActive {
 		t.Errorf("memory exactly at threshold: expected ACTIVE, got %s", result.Class)

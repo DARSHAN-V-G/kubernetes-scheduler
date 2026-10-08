@@ -5,6 +5,7 @@
 import { api } from "./api.js?v=2";
 import { state } from "./state.js?v=2";
 import { ClusterController } from "./cluster.js?v=6";
+import { TrafficMonitorController } from "./traffic.js?v=1";
 
 // ── Formatters (Presentation only) ──────────────────────────────────────────
 function formatCPU(millicores) {
@@ -68,24 +69,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       state.setPolicy(health.policy);
     }
 
-    // 2. Fetch all 75 preset scenarios from Go backend
-    const presets = await api.getPresets();
-    state.setPresets(presets);
-    populateScenarioDropdown(presets);
-
-    // 3. Load default scenario (scenario-10: Strong Full Reclaim, or first available)
-    const defaultScenario = presets.find(p => p.id === "scenario-10") || presets[0];
-    if (defaultScenario) {
-      await loadScenario(defaultScenario.id, defaultScenario.name);
-    }
-
-    // 4. Register reactive render subscriber
-    state.subscribe(renderDashboard);
-
-    // 5. Setup event bindings
+    // 2. Setup event bindings
     bindEvents();
 
-    // 6. Initialize Active Workload / Cluster controller
+    // 3. Initialize Active Workload / Cluster controller (for drawer & config modal support)
     try {
       window.clusterCtrl = new ClusterController();
       await window.clusterCtrl.init();
@@ -93,8 +80,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.warn("Cluster controller initialization error:", e);
     }
 
-    // 7. Initial render
-    renderDashboard(state);
+    // 4. Initialize Live Traffic & Scheduler Decision Monitor controller
+    try {
+      window.trafficCtrl = new TrafficMonitorController();
+      await window.trafficCtrl.init();
+    } catch (e) {
+      console.warn("Traffic controller initialization error:", e);
+    }
+
+    // 5. Default immediately to the requested single mode: Live Traffic and Scheduler Monitor
+    switchExecutionMode("traffic");
   } catch (err) {
     console.error("Initialization error:", err);
     showErrorBanner(`Failed to connect to simulator backend on port 8082: ${err.message}`);
@@ -174,37 +169,54 @@ async function executeSimulation() {
   }
 }
 
-// ── Event Bindings ─────────────────────────────────────────────────────────
-function bindEvents() {
-  // Mode Switcher: [ Scenario Simulator ] vs [ Active Workload / Cluster ]
+function switchExecutionMode(mode) {
   const btnModeSim = document.getElementById("btn-mode-simulator");
   const btnModeCluster = document.getElementById("btn-mode-cluster");
+  const btnModeTraffic = document.getElementById("btn-mode-traffic");
   const simNav = document.querySelector(".header-center-nav");
   const headerActions = document.querySelector(".header-actions");
 
-  function switchExecutionMode(mode) {
-    if (mode === "cluster") {
-      if (btnModeCluster) btnModeCluster.classList.add("active");
-      if (btnModeSim) btnModeSim.classList.remove("active");
-      if (simNav) simNav.style.display = "none";
-      if (headerActions) headerActions.style.display = "none";
-      document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
-      const clusterPanel = document.getElementById("view-panel-cluster");
-      if (clusterPanel) clusterPanel.classList.add("active");
-      if (window.clusterCtrl) window.clusterCtrl.refresh();
-    } else {
-      if (btnModeSim) btnModeSim.classList.add("active");
-      if (btnModeCluster) btnModeCluster.classList.remove("active");
-      if (simNav) simNav.style.display = "";
-      if (headerActions) headerActions.style.display = "";
-      const clusterPanel = document.getElementById("view-panel-cluster");
-      if (clusterPanel) clusterPanel.classList.remove("active");
-      state.setActiveView(state.activeView || "overview");
+  if (btnModeSim) btnModeSim.classList.toggle("active", mode === "simulator");
+  if (btnModeCluster) btnModeCluster.classList.toggle("active", mode === "cluster");
+  if (btnModeTraffic) btnModeTraffic.classList.toggle("active", mode === "traffic");
+
+  document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+
+  if (mode === "traffic") {
+    if (simNav) simNav.style.display = "none";
+    if (headerActions) headerActions.style.display = "none";
+    const trafficPanel = document.getElementById("view-panel-traffic");
+    if (trafficPanel) trafficPanel.classList.add("active");
+    if (window.trafficCtrl) {
+      if (window.trafficCtrl.isPolling) {
+        window.trafficCtrl.startPolling();
+      }
+      window.trafficCtrl.refresh();
     }
+  } else if (mode === "cluster") {
+    if (simNav) simNav.style.display = "none";
+    if (headerActions) headerActions.style.display = "none";
+    const clusterPanel = document.getElementById("view-panel-cluster");
+    if (clusterPanel) clusterPanel.classList.add("active");
+    if (window.clusterCtrl) window.clusterCtrl.refresh();
+    if (window.trafficCtrl) window.trafficCtrl.stopPolling();
+  } else {
+    if (simNav) simNav.style.display = "";
+    if (headerActions) headerActions.style.display = "";
+    state.setActiveView(state.activeView || "overview");
+    if (window.trafficCtrl) window.trafficCtrl.stopPolling();
   }
+}
+
+// ── Event Bindings ─────────────────────────────────────────────────────────
+function bindEvents() {
+  const btnModeSim = document.getElementById("btn-mode-simulator");
+  const btnModeCluster = document.getElementById("btn-mode-cluster");
+  const btnModeTraffic = document.getElementById("btn-mode-traffic");
 
   if (btnModeSim) btnModeSim.addEventListener("click", () => switchExecutionMode("simulator"));
   if (btnModeCluster) btnModeCluster.addEventListener("click", () => switchExecutionMode("cluster"));
+  if (btnModeTraffic) btnModeTraffic.addEventListener("click", () => switchExecutionMode("traffic"));
 
   // Navigation Tabs
   document.querySelectorAll(".nav-tab-btn").forEach(btn => {
@@ -556,14 +568,20 @@ function openDrawer(index) {
 
 // ── Master Render Dispatcher ───────────────────────────────────────────────
 function renderDashboard(currentState) {
-  // Update view navigation tabs
-  document.querySelectorAll(".nav-tab-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-view") === currentState.activeView);
-  });
+  // If active mode is traffic, keep traffic panel active
+  const trafficPanel = document.getElementById("view-panel-traffic");
+  const isTrafficActive = trafficPanel && trafficPanel.classList.contains("active");
 
-  document.querySelectorAll(".view-panel").forEach(panel => {
-    panel.classList.toggle("active", panel.getAttribute("data-view-panel") === currentState.activeView);
-  });
+  if (!isTrafficActive) {
+    // Update view navigation tabs
+    document.querySelectorAll(".nav-tab-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-view") === currentState.activeView);
+    });
+
+    document.querySelectorAll(".view-panel").forEach(panel => {
+      panel.classList.toggle("active", panel.getAttribute("data-view-panel") === currentState.activeView);
+    });
+  }
 
   // Render System Status Strip
   renderSystemStatus(currentState);

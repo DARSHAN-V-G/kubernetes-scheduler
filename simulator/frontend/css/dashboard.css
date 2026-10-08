@@ -1637,10 +1637,12 @@ footer.app-footer {
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
-.badge-status-pill.purple {
-  background: rgba(168, 85, 247, 0.15);
-  color: #a855f7;
-  border: 1px solid rgba(168, 85, 247, 0.3);
+.badge-status-pill.purple,
+.badge-status-pill.reclaimed {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  font-weight: 700;
 }
 .badge-status-pill.highlight {
   background: rgba(59, 130, 246, 0.15);
@@ -1966,6 +1968,123 @@ footer.app-footer {
   color: #60a5fa;
   font-weight: 600;
 }
+
+/* ── Live Traffic Simulation & Scheduler Decision Monitor ────────────────── */
+.traffic-control-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-subtle);
+}
+
+@media (min-width: 900px) {
+  .traffic-control-bar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.traffic-ctrl-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.traffic-buttons-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.traffic-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: all 0.2s ease;
+}
+
+.traffic-status-pill.active {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  color: #34d399;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.traffic-status-pill.active .status-dot {
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-dot 1.5s infinite;
+}
+
+.traffic-status-pill.idle {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.traffic-status-pill.idle .status-dot {
+  background-color: #f59e0b;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.traffic-stats-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 1rem;
+}
+
+.traffic-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.traffic-stat-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.traffic-stat-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.traffic-stat-val.highlight {
+  color: var(--color-brand);
+}
+
+.btn.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 
 
 

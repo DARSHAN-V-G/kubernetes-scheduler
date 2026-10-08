@@ -119,6 +119,19 @@ func TestEngine_InsufficientReplicas_BlocksAll(t *testing.T) {
 	}
 }
 
+func TestEngine_InsufficientReplicas_AllowedWhenReclaimableOptIn(t *testing.T) {
+	pod := goodPod()
+	pod.Replicas.AvailableReplicas = 1
+	pod.Annotations["reclaim.io/graceful-redeploy"] = "true"
+	result := NewEngine(DefaultPolicy()).Evaluate(goodProfile(), pod)
+	if result.Action == ActionKeep {
+		t.Errorf("single replica with graceful-redeploy=true: expected reclaim, got KEEP")
+	}
+	if !result.Capabilities.FullReclaimAllowed {
+		t.Errorf("expected FullReclaimAllowed to be true")
+	}
+}
+
 func TestEngine_PodNotRunning_BlocksAll(t *testing.T) {
 	pod := goodPod()
 	pod.Phase = corev1.PodPending

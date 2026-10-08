@@ -220,6 +220,11 @@ func main() {
 			case <-ticker.C:
 				allPods := cache.GetAllPods()
 				for _, pod := range allPods {
+					// Strictly monitor and evaluate only pods targeted to adaptive-scheduler
+					if pod.SchedulerName != schedCfg.SchedulerName {
+						continue
+					}
+
 					podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 					reclaimCooldownMu.Lock()
 					lastReclaimed, recentlyReclaimed := reclaimCooldown[podKey]

@@ -257,6 +257,7 @@ func (m *K8sInformerManager) syncPod(pod *corev1.Pod) {
 		Name:                    pod.Name,
 		UID:                     pod.UID,
 		NodeName:                pod.Spec.NodeName,
+		SchedulerName:           pod.Spec.SchedulerName,
 		Phase:                   pod.Status.Phase,
 		RestartPolicy:           pod.Spec.RestartPolicy,
 		OwnerReferences:         pod.OwnerReferences,

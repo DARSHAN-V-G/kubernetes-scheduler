@@ -98,12 +98,21 @@ func checkPDB(pod *metrics.PodMetrics, policy *Policy) (blockFull, blockSoft boo
 }
 
 // checkReplicaAvailability blocks ALL reclamation when removing this pod would
-// drop available replicas below the minimum required threshold.
-// Standalone pods (nil Replicas) are not constrained by this check.
+// drop available replicas below the minimum required threshold, EXCEPT when
+// the workload explicitly opts into single-replica reclamation/scale-to-zero via
+// reclaimable="true", reclaim.io/reclaimable="true", or reclaim.io/graceful-redeploy="true".
 func checkReplicaAvailability(pod *metrics.PodMetrics, policy *Policy) (blockFull, blockSoft bool, reason string) {
 	if pod.Replicas == nil {
 		return false, false, ""
 	}
+	// Workloads that explicitly configure scale-to-zero or reclamation can safely be reclaimed at 1 replica
+	if (pod.Annotations != nil && (pod.Annotations["reclaim.io/graceful-redeploy"] == "true" ||
+		pod.Annotations["reclaim.io/reclaimable"] == "true" ||
+		pod.Annotations["reclaimable"] == "true")) ||
+		(pod.Labels != nil && pod.Labels["reclaimable"] == "true") {
+		return false, false, ""
+	}
+
 	afterRemoval := pod.Replicas.AvailableReplicas - 1
 	if afterRemoval < policy.MinReplicasRequired {
 		return true, true, fmt.Sprintf(
