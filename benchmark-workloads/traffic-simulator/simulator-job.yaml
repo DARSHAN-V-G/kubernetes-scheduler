@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stochastic-traffic-generator
+  namespace: default
+  labels:
+    app: stochastic-traffic-generator
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: stochastic-traffic-generator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: traffic-simulator
+          image: benchmark-traffic-simulator:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-target-default=http://gateway.test-application-default.svc.cluster.local:80"
+            - "-target-adaptive=http://gateway.test-application-adaptive.svc.cluster.local:80"
+            - "-mode=realtime"
+            - "-stats-interval=10s"
+            - "-metrics-file=/tmp/benchmark_traffic_telemetry.csv"
+          resources:
+            requests:
+              cpu: "30m"
+              memory: "32Mi"
+            limits:
+              cpu: "150m"
+              memory: "64Mi"

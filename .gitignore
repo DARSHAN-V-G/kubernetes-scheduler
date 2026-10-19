@@ -32,6 +32,8 @@ out/
 # Python virtual environments
 .venv/
 venv/
+.venv_linux/
+venv_linux/
 __pycache__/
 *.pyc
 

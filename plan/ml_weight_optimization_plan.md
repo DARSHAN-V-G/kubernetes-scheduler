@@ -78,50 +78,98 @@ Instead of hardcoding static threshold cutoffs (like 0.50 and 0.75), we derive t
 
 ---
 
-## 4. Implementation Workflow
+---
+
+## 4. Empirical Training Results (Trained on 405,120 Borg Workloads)
+
+Running the automated training pipeline (`ml/run_training.py`) on Google Borg production trace data (`dataset/borg_traces_data.csv`, 405,120 rows) produced the following objective mathematical weights and decision thresholds:
+
+### 4.1. Shannon Entropy Weights (EWM)
+
+| Factor | Description | Entropy ($e_j$) | Divergence ($d_j$) | Derived Weight ($W_j$) | Percentage |
+|---|---|---|---|---|---|
+| `WeightBenefit` | Absolute Reclaimable Volume (CPU+RAM) | 0.985694 | 0.014306 | **0.409373** | **40.94%** |
+| `WeightMemory` | Memory Waste Ratio (Req vs Avg) | 0.992109 | 0.007891 | **0.225841** | **22.58%** |
+| `WeightCPU` | CPU Waste Ratio (Req vs Avg) | 0.993021 | 0.006979 | **0.199702** | **19.97%** |
+| `WeightState` | Scheduling Class (Disruption Tolerance) | 0.996561 | 0.003439 | **0.098443** | **9.84%** |
+| `WeightPriority` | Workload Priority Inversion | 0.997766 | 0.002234 | **0.063951** | **6.40%** |
+| `WeightReplica` | Collection Redundancy Level | 0.999906 | 0.000094 | **0.002690** | **0.27%** |
+| **Total** | — | — | **0.034943** | **1.000000** | **100.00%** |
+
+#### Why this makes physical engineering sense:
+1. **Benefit & Waste Dominate (~83.5% combined)**: The primary goal of resource reclamation is recovering high-volume wasted capacity. Workloads that hold gigabytes of idle RAM or cores have high variance and high information utility.
+2. **State & Priority Provide Safety Context (~16.2% combined)**: Differentiates batch jobs from user-facing latency-critical services without subjective human guesswork.
+3. **Zero Human Bias / No Circular Targets**: Unlike supervised regression models (e.g. Ridge or XGBoost) which require hand-crafting an artificial target $y = \text{gain} \times \text{safety}$ (which is circular tautology), EWM derives importance purely from natural statistical variance (the Information Theory Contrast Rule).
+
+### 4.2. K-Means Thresholds ($K = 3$)
+
+Applying 1D K-Means clustering to the 405,120 composite scores yielded three natural clusters:
+- **Cluster 0 Centroid ($C_0$, Low Score)**: `0.1974` $\rightarrow$ Active, low-waste, or critical workloads.
+- **Cluster 1 Centroid ($C_1$, Medium Score)**: `0.4748` $\rightarrow$ Moderate waste candidates.
+- **Cluster 2 Centroid ($C_2$, High Score)**: `0.7105` $\rightarrow$ Severe waste, batch/low-priority candidates.
+
+#### Derived Decision Thresholds:
+$$\text{SoftReclaimScoreThreshold} = \frac{C_0 + C_1}{2} = \frac{0.1974 + 0.4748}{2} = \mathbf{0.3361}$$
+$$\text{FullReclaimScoreThreshold} = \frac{C_1 + C_2}{2} = \frac{0.4748 + 0.7105}{2} = \mathbf{0.5927}$$
+
+#### Workload Population Distribution Across Clusters:
+- **`KEEP`** ($S < 0.3361$): **138,477 workloads (34.18%)**
+- **`SOFT_RECLAIM`** ($0.3361 \le S < 0.5927$): **168,145 workloads (41.51%)**
+- **`FULL_RECLAIM`** ($S \ge 0.5927$): **98,498 workloads (24.31%)**
+
+---
+
+## 5. Architectural Separation: Scoring vs. Safety Gates
+
+It is critical to distinguish between **statistical scoring factors** and **binary safety constraints**:
+- **Why PDB and CRIU are NOT weighted factors**:
+  - `PodDisruptionBudget` (`DisruptionsAllowed == 0`) and CRIU Checkpointing compatibility are **hard binary constraints** dictated by Kubernetes runtime cluster state.
+  - If a PDB has `DisruptionsAllowed == 0`, evicting the pod violates cluster SLOs regardless of how high its CPU/Memory waste is.
+  - Therefore, PDB and CRIU are evaluated as **Stage 1 Safety Gates** in `safety.go`, before any composite score is calculated, while the Borg ML pipeline handles the 6 physical resource/workload dimensions.
+
+---
+
+## 6. Implementation Workflow & Deliverables
 
 ```text
 +-------------------------------------------------------------+
 |                 dataset/borg_traces_data.csv                |
+|                 (405,120 production workloads)              |
 +-------------------------------------------------------------+
                                |
                                v  (ml/extract.py)
 +-------------------------------------------------------------+
-|  1. Extract the 6 features from Borg trace columns          |
-|     [Score_CPU, Score_Mem, Benefit, Priority, State, Replica]|
+|  1. Vectorized Feature Extraction                           |
+|     - Score_CPU, Score_Mem, Benefit, Priority, State, Replica|
 +-------------------------------------------------------------+
                                |
                                v  (ml/train.py)
 +-------------------------------------------------------------+
-|  1. Run Correlation Analysis                                |
-|  2. Compute Entropy Weights (W_CPU, W_Mem, ..., W_Replica)  |
-|  3. Compute Composite Scores S for all rows                 |
-|  4. Run K-Means (K=3) to derive Soft and Full Thresholds    |
+|  2. Statistical & Information Theory Training:              |
+|     - Pearson Correlation Heatmap & Verification            |
+|     - Shannon Entropy Weight Calculation (W_Benefit, etc.)  |
+|     - Composite Score Computation S                         |
+|     - K-Means (K=3) Clustering & Decision Zone Derivation   |
 +-------------------------------------------------------------+
                                |
                                v  (ml/export.py)
 +-------------------------------------------------------------+
-|  Export ml/artifacts/trained_weights.json                   |
-|  - weights: {WeightCPU, WeightMemory, ..., WeightReplica}   |
-|  - thresholds: {SoftThreshold, FullThreshold}               |
+|  3. Export ml/artifacts/trained_weights.json                |
+|     - weights: {WeightBenefit: 0.409373, ...}               |
+|     - thresholds: {Soft: 0.3361, Full: 0.5927}              |
 +-------------------------------------------------------------+
                                |
                                v
 +-------------------------------------------------------------+
-|  Go Engine Integration:                                     |
-|  - pkg/decision/scoring.go (6-factor score computation)     |
-|  - pkg/decision/policy.go (Defaults)                        |
-|  - pkg/decision/weights.go (JSON loader)                    |
+|  4. Go Reclamation Decision Engine Integration:             |
+|     - pkg/decision/scoring.go (6-factor score computation)  |
+|     - pkg/decision/policy.go (Defaults & thresholds)        |
+|     - pkg/decision/weights.go (JSON artifact loader)        |
 +-------------------------------------------------------------+
 ```
 
----
-
-## 5. Deliverables
-
-1. **`ml/extract.py`**: Extracts the 6 normalized features from the Borg traces.
-2. **`ml/train.py`**: Computes correlation matrix, Shannon entropy weights, and K-Means cluster thresholds.
-3. **`ml/export.py`**: Exports weights and thresholds to `ml/artifacts/trained_weights.json`.
-4. **`adaptive-k8s-scheduler/pkg/decision/`**:
-   * Update `scoring.go` and `policy.go` to use the 6 factors with the trained weights and thresholds.
-   * Update `weights.go` to load the 6 weights and thresholds from JSON.
+### Reproducibility Command:
+```bash
+python ml/run_training.py
+```
+This runs the entire end-to-end pipeline in under 10 seconds, regenerates visual artifacts (`correlation_heatmap.png`, `entropy_weights.png`, `kmeans_thresholds.png`), and writes `ml/artifacts/trained_weights.json`.

@@ -1,0 +1,31 @@
+apiVersion: reclaim.io/v1alpha1
+kind: ReclaimPolicy
+metadata:
+  name: adaptive-benchmark-reclaim-policy
+  namespace: test-application-adaptive
+  labels:
+    app.kubernetes.io/part-of: adaptive-scheduler
+spec:
+  # Minimum sustained idle duration before candidate qualification
+  idleDurationThreshold: "20s"
+
+  # Telemetry thresholds (satisfied when workload is idle)
+  cpuIdleThresholdPct: 0.15       # CPU usage < 15% of requested
+  memoryIdleThresholdPct: 0.25    # Memory usage < 25% of requested
+  qpsIdleThreshold: 0.0           # Zero HTTP requests/sec
+  netIdleThresholdBytes: 20480.0  # Network I/O < 20 KB/s
+
+  # Safety constraints
+  minReplicasRequired: 0          # Allow scaling down to 0 during idle phases
+  maxPriorityForReclaim: 100000   # Protect system workloads
+  exemptPriorityClasses:
+    - system-cluster-critical
+    - system-node-critical
+
+  # Reclamation mode: Adaptive (evaluates composite score for Full Checkpoint vs Soft Right-Sizing)
+  actionType: "Adaptive"
+
+  # Custom score thresholds
+  scoreThresholds:
+    fullReclaimThreshold: 0.60    # Composite score >= 0.60 triggers CRIU Full Reclaim / suspend
+    softReclaimThreshold: 0.40    # Composite score >= 0.40 triggers Soft Right-Sizing

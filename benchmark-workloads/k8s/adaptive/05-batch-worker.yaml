@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch-worker
+  namespace: test-application-adaptive
+  labels:
+    app: batch-worker
+    scheduler.reclaim/class: "C"
+  annotations:
+    reclaim.io/app: "benchmark-fleet"
+    reclaim.io/checkpointable: "true"
+    reclaim.io/graceful-redeploy: "true"
+    reclaim.io/depends-on: "cache"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: batch-worker
+  template:
+    metadata:
+      labels:
+        app: batch-worker
+        scheduler.reclaim/class: "C"
+      annotations:
+        reclaim.io/app: "benchmark-fleet"
+        reclaim.io/checkpointable: "true"
+        reclaim.io/graceful-redeploy: "true"
+        reclaim.io/depends-on: "cache"
+    spec:
+      schedulerName: adaptive-scheduler
+      nodeSelector:
+        benchmark.role: adaptive
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: batch-worker
+          image: benchmark-batch-worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: fleet-config
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "192Mi"

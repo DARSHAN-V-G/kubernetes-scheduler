@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache
+  namespace: test-application-adaptive
+  labels:
+    app: cache
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app: cache
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache
+  namespace: test-application-adaptive
+  labels:
+    app: cache
+    scheduler.reclaim/class: "B"
+  annotations:
+    reclaim.io/app: "benchmark-fleet"
+    reclaim.io/checkpointable: "false"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cache
+  template:
+    metadata:
+      labels:
+        app: cache
+        scheduler.reclaim/class: "B"
+      annotations:
+        reclaim.io/app: "benchmark-fleet"
+        reclaim.io/checkpointable: "false"
+    spec:
+      schedulerName: adaptive-scheduler
+      nodeSelector:
+        benchmark.role: adaptive
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10

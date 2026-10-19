@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: test-application-default
+  labels:
+    app: gateway
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: gateway
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: test-application-default
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      nodeSelector:
+        benchmark.role: default
+      containers:
+        - name: gateway
+          image: benchmark-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "30m"
+              memory: "32Mi"
+            limits:
+              cpu: "150m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10

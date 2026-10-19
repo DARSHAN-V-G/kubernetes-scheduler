@@ -31,7 +31,9 @@ def main():
 
     plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
     fig, (ax_cpu, ax_mem) = plt.subplots(2, 1, figsize=(16, 12), dpi=150, sharex=True)
-    fig.patch.set_facecolor('#f8fafc')
+    fig.patch.set_facecolor('#ffffff')
+    ax_cpu.set_facecolor('#ffffff')
+    ax_mem.set_facecolor('#ffffff')
 
     # Color palette
     # Adaptive Scheduler (Solid lines)
@@ -175,7 +177,7 @@ def main():
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    plt.savefig(args.output, dpi=180, bbox_inches='tight')
+    plt.savefig(args.output, dpi=180, bbox_inches='tight', facecolor='white', edgecolor='none')
     plt.close()
 
     print(f"\n==================================================================")

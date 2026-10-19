@@ -228,7 +228,7 @@ func main() {
 					podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 					reclaimCooldownMu.Lock()
 					lastReclaimed, recentlyReclaimed := reclaimCooldown[podKey]
-					if recentlyReclaimed && time.Since(lastReclaimed) < 10*time.Minute {
+					if recentlyReclaimed && time.Since(lastReclaimed) < 2*time.Minute {
 						reclaimCooldownMu.Unlock()
 						continue
 					}

@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-api
+  namespace: test-application-adaptive
+  labels:
+    app: core-api
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  selector:
+    app: core-api
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-api
+  namespace: test-application-adaptive
+  labels:
+    app: core-api
+    scheduler.reclaim/class: "B"
+  annotations:
+    reclaim.io/app: "benchmark-fleet"
+    reclaim.io/checkpointable: "true"
+    reclaim.io/graceful-redeploy: "true"
+    reclaim.io/depends-on: "cache,datastore"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core-api
+  template:
+    metadata:
+      labels:
+        app: core-api
+        scheduler.reclaim/class: "B"
+      annotations:
+        reclaim.io/app: "benchmark-fleet"
+        reclaim.io/checkpointable: "true"
+        reclaim.io/graceful-redeploy: "true"
+        reclaim.io/depends-on: "cache,datastore"
+    spec:
+      schedulerName: adaptive-scheduler
+      nodeSelector:
+        benchmark.role: adaptive
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: core-api
+          image: benchmark-core-api:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: fleet-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-secrets
+                  key: postgres-password
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "kill -TERM 1; sleep 3"]

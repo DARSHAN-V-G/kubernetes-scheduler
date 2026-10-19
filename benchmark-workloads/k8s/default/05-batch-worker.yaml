@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch-worker
+  namespace: test-application-default
+  labels:
+    app: batch-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: batch-worker
+  template:
+    metadata:
+      labels:
+        app: batch-worker
+    spec:
+      nodeSelector:
+        benchmark.role: default
+      containers:
+        - name: batch-worker
+          image: benchmark-batch-worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: fleet-config
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "192Mi"

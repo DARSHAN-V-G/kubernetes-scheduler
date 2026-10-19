@@ -12,6 +12,14 @@ kubeadmConfigPatches:
       ContainerCheckpoint: true
 nodes:
   - role: control-plane
+  # Node dedicated to Default Kubernetes Scheduler deployment
+  - role: worker
+    labels:
+      benchmark.role: default
+  # Node dedicated to Adaptive Kubernetes Scheduler deployment (with CRIU checkpoints)
+  - role: worker
+    labels:
+      benchmark.role: adaptive
     extraMounts:
       - hostPath: /tmp/checkpoints
         containerPath: /var/lib/kubelet/checkpoints

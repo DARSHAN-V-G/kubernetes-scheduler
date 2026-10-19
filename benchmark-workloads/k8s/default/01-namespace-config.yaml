@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-application-default
+  labels:
+    benchmark.role: default-scheduler
+    app.kubernetes.io/name: benchmark-fleet
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-secrets
+  namespace: test-application-default
+type: Opaque
+stringData:
+  postgres-password: "benchmark_secure_pass"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-config
+  namespace: test-application-default
+data:
+  DB_HOST: "datastore"
+  DB_PORT: "5432"
+  DB_USER: "postgres"
+  DB_NAME: "benchmark_fleet"
+  REDIS_ADDR: "cache:6379"
