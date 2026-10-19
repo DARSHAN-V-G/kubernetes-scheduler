@@ -21,16 +21,30 @@ import (
 	"time"
 )
 
+var istLocation *time.Location
+
+func init() {
+	var err error
+	istLocation, err = time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		istLocation = time.FixedZone("IST", 5*3600+30*60)
+	}
+	time.Local = istLocation
+}
+
 type Config struct {
 	TargetDefault   string
 	TargetAdaptive  string
 	Mode            string // "realtime" or "timewarp"
+	Profile         string // "fast" (demo validation) or "48h" (stochastic multi-day)
 	TimeWarpFactor  float64
 	StatsInterval   time.Duration
 	MetricsFile     string
 	RequestsFile    string
 	OverallDuration time.Duration
 	SimulateBursts  bool
+	FastBurstSec    float64 // Burst duration in fast profile
+	FastIdleSec     float64 // Quiescent idle duration in fast profile
 }
 
 type RequestLogEntry struct {
@@ -93,7 +107,7 @@ func (rt *RequestTracker) Flush() {
 	rt.mu.Unlock()
 
 	data, err := json.MarshalIndent(map[string]interface{}{
-		"updated_at": time.Now().UTC().Format(time.RFC3339),
+		"updated_at": time.Now().In(istLocation).Format(time.RFC3339),
 		"requests":   snapshot,
 	}, "", "  ")
 
@@ -215,7 +229,7 @@ func (m *MetricsCollector) SnapshotAndFlush(simHour float64, regime string, targ
 	adpP50 := calcPercentile(m.AdpLatencies, 0.50)
 	adpP95 := calcPercentile(m.AdpLatencies, 0.95)
 
-	ts := time.Now().UTC().Format(time.RFC3339)
+	ts := time.Now().In(istLocation).Format(time.RFC3339)
 
 	// Write to CSV
 	_ = m.csvWriter.Write([]string{
@@ -255,8 +269,8 @@ func CalculateDiurnalRate(hourOfDay float64, simulateBursts bool) (float64, stri
 
 	switch {
 	case h >= 23.0 || h < 7.0:
-		// Regime 1: Deep Night Quiescence (0.02 - 0.05 req/s)
-		baseRate = 0.03
+		// Regime 1: Deep Night Quiescence (0.0 req/s to allow complete scale-to-zero)
+		baseRate = 0.0
 		regime = "Night Quiescence"
 	case h >= 7.0 && h < 9.5:
 		// Regime 2: Morning Ramp (2.0 - 8.0 req/s)
@@ -285,7 +299,7 @@ func CalculateDiurnalRate(hourOfDay float64, simulateBursts bool) (float64, stri
 		regime += " (Burst)"
 	}
 
-	return math.Max(0.02, baseRate), regime
+	return math.Max(0.0, baseRate), regime
 }
 
 type RequestPayload struct {
@@ -294,13 +308,110 @@ type RequestPayload struct {
 	Body   []byte
 }
 
-func GenerateEndpointRequest(elapsedSec float64) RequestPayload {
-	// 60-Second Phased Batch Burst Cycle:
-	// - 0s to 20s: Batch Burst Phase (Jobs dispatched to spike worker memory to 100+ MB)
-	// - 20s to 60s: Quiescent Phase (0 batch jobs; worker becomes IDLE > 10s holding 100MB -> FULL_RECLAIM)
-	cyclePos := math.Mod(elapsedSec, 60.0)
-	isBatchBurstWindow := (cyclePos < 20.0)
+type BatchBurstController struct {
+	mu           sync.Mutex
+	profile      string
+	currentPhase string
+	phaseEndsAt  time.Time
+	rng          *rand.Rand
+	lastLogged   string
+	fastBurstSec float64
+	fastIdleSec  float64
+}
 
+func NewBatchBurstController(profile string, burstSec, idleSec float64) *BatchBurstController {
+	p := strings.ToLower(strings.TrimSpace(profile))
+	if p != "48h" && p != "real" && p != "realtime" {
+		p = "fast"
+	}
+	if burstSec <= 0 {
+		burstSec = 45.0 // 45s burst is optimal to allocate 100MB heap buffer
+	}
+	if idleSec <= 0 {
+		idleSec = 180.0 // 180s (3m) idle exceeds 60s IdleMinDuration with margin
+	}
+	rng := rand.New(rand.NewSource(1337)) // Deterministic seed for reproducible evaluation
+	ctrl := &BatchBurstController{
+		profile:      p,
+		rng:          rng,
+		currentPhase: "BURST",
+		fastBurstSec: burstSec,
+		fastIdleSec:  idleSec,
+	}
+	nowIST := time.Now().In(istLocation).Format("15:04:05 IST")
+	if p == "fast" {
+		ctrl.phaseEndsAt = time.Now().Add(time.Duration(burstSec * float64(time.Second)))
+		log.Printf("[%s] [WORKLOAD PROFILE: fast] Initialized: %.0fs Burst / %.0fs Quiescent (%.1fm cycle)",
+			nowIST, burstSec, idleSec, (burstSec+idleSec)/60.0)
+	} else {
+		// Start in 3m burst to prime the worker heap
+		ctrl.phaseEndsAt = time.Now().Add(3 * time.Minute)
+		log.Printf("[%s] [WORKLOAD PROFILE: 48h] Initialized: Stochastic Diurnal (Day: 3-6m Burst/15-35m Idle, Night: 4-8m Burst/1-2h Idle)",
+			nowIST)
+	}
+	return ctrl
+}
+
+func (c *BatchBurstController) IsBurstActive(now time.Time, elapsedSec float64, simHour float64) bool {
+	if c.profile == "fast" {
+		cycleTotal := c.fastBurstSec + c.fastIdleSec
+		cyclePos := math.Mod(elapsedSec, cycleTotal)
+		isBurst := cyclePos < c.fastBurstSec
+		phaseName := "IDLE"
+		if isBurst {
+			phaseName = "BURST"
+		}
+		if phaseName != c.lastLogged {
+			c.mu.Lock()
+			if phaseName != c.lastLogged {
+				c.lastLogged = phaseName
+				nowIST := now.In(istLocation).Format("15:04:05 IST")
+				if isBurst {
+					log.Printf("[%s] [CYCLE: fast] Entering BURST phase (T+%.0fs). Spiking worker heap for %.0fs.", nowIST, elapsedSec, c.fastBurstSec)
+				} else {
+					log.Printf("[%s] [CYCLE: fast] Entering IDLE phase (T+%.0fs). 0 batch jobs for %.0fs. Worker queue draining -> idle detection & checkpointing.", nowIST, elapsedSec, c.fastIdleSec)
+				}
+			}
+			c.mu.Unlock()
+		}
+		return isBurst
+	}
+
+	// 48h Profile: Stochastic transitions
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if now.After(c.phaseEndsAt) {
+		isDaytime := (simHour >= 8.0 && simHour < 20.0)
+		if c.currentPhase == "BURST" {
+			c.currentPhase = "IDLE"
+			var idleSec float64
+			if isDaytime {
+				idleSec = 900.0 + c.rng.Float64()*1200.0 // 15 to 35 mins
+			} else {
+				idleSec = 3600.0 + c.rng.Float64()*3600.0 // 1 to 2 hours
+			}
+			c.phaseEndsAt = now.Add(time.Duration(idleSec * float64(time.Second)))
+			log.Printf("[STOCHASTIC 48H] Entering IDLE phase for %.1f min (until %s). 0 batch jobs; worker will checkpoint and scale to 0.",
+				idleSec/60.0, c.phaseEndsAt.Format("15:04:05"))
+		} else {
+			c.currentPhase = "BURST"
+			var burstSec float64
+			if isDaytime {
+				burstSec = 180.0 + c.rng.Float64()*180.0 // 3 to 6 mins
+			} else {
+				burstSec = 240.0 + c.rng.Float64()*240.0 // 4 to 8 mins
+			}
+			c.phaseEndsAt = now.Add(time.Duration(burstSec * float64(time.Second)))
+			log.Printf("[STOCHASTIC 48H] Entering BURST phase for %.1f min (until %s). Restoring worker and expanding heap.",
+				burstSec/60.0, c.phaseEndsAt.Format("15:04:05"))
+		}
+	}
+	return c.currentPhase == "BURST"
+}
+
+func GenerateEndpointRequest(now time.Time, elapsedSec float64, simHour float64, ctrl *BatchBurstController) RequestPayload {
+	isBatchBurstWindow := ctrl.IsBurstActive(now, elapsedSec, simHour)
 	roll := rand.Float64()
 
 	if isBatchBurstWindow && roll < 0.35 {
@@ -384,7 +495,7 @@ func dispatchSingle(client *http.Client, targetBase string, targetName string, p
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "AdaptiveBenchmark-StochasticSimulator/1.0")
 
-	startTime := time.Now()
+	startTime := time.Now().In(istLocation)
 	dispatchTs := startTime.Format("15:04:05.000")
 	resp, err := client.Do(req)
 	duration := time.Since(startTime)
@@ -457,6 +568,9 @@ func main() {
 	flag.StringVar(&cfg.TargetDefault, "target-default", "http://127.0.0.1:8080", "Base URL for default scheduler gateway")
 	flag.StringVar(&cfg.TargetAdaptive, "target-adaptive", "http://127.0.0.1:8081", "Base URL for adaptive scheduler gateway")
 	flag.StringVar(&cfg.Mode, "mode", "realtime", "Execution mode: 'realtime' (1x wall clock) or 'timewarp' (accelerated)")
+	flag.StringVar(&cfg.Profile, "profile", "fast", "Workload profile: 'fast' (burst / idle cycle) or '48h' (stochastic multi-day)")
+	flag.Float64Var(&cfg.FastBurstSec, "fast-burst-sec", 45.0, "Duration of burst phase in fast profile (seconds)")
+	flag.Float64Var(&cfg.FastIdleSec, "fast-idle-sec", 180.0, "Duration of quiescent idle phase in fast profile (seconds)")
 	flag.Float64Var(&cfg.TimeWarpFactor, "timewarp-factor", 48.0, "Time acceleration factor (e.g. 48x = 24h cycle in 30 minutes)")
 	flag.DurationVar(&cfg.StatsInterval, "stats-interval", 5*time.Second, "Interval between terminal status logs")
 	flag.StringVar(&cfg.MetricsFile, "metrics-file", "benchmark_traffic_telemetry.csv", "Path for output metrics CSV")
@@ -465,9 +579,16 @@ func main() {
 	flag.BoolVar(&cfg.SimulateBursts, "simulate-bursts", true, "Inject random Poisson bursts during peak periods")
 	flag.Parse()
 
+	if envProf := os.Getenv("WORKLOAD_PROFILE"); envProf != "" && cfg.Profile == "fast" {
+		cfg.Profile = envProf
+	}
+
+	burstCtrl := NewBatchBurstController(cfg.Profile, cfg.FastBurstSec, cfg.FastIdleSec)
+
 	log.Println("=================================================================")
 	log.Println(" Industrial Stochastic Traffic Simulator & Dual Dispatcher")
 	log.Printf(" Mode: %s (TimeWarp Factor: %.1fx)", cfg.Mode, cfg.TimeWarpFactor)
+	log.Printf(" Profile         : %s", cfg.Profile)
 	log.Printf(" Target Default  : %s", cfg.TargetDefault)
 	log.Printf(" Target Adaptive : %s", cfg.TargetAdaptive)
 	log.Printf(" Metrics Output  : %s", cfg.MetricsFile)
@@ -562,12 +683,22 @@ func main() {
 			simulatedElapsedHours := (elapsedReal * cfg.TimeWarpFactor) / 3600.0
 			currentSimHour = math.Mod(8.0+simulatedElapsedHours, 24.0)
 		} else {
-			// Real wall-clock time
-			now := time.Now()
-			currentSimHour = float64(now.Hour()) + float64(now.Minute())/60.0 + float64(now.Second())/3600.0
+			// Real wall-clock time in IST (Asia/Kolkata)
+			nowIST := time.Now().In(istLocation)
+			currentSimHour = float64(nowIST.Hour()) + float64(nowIST.Minute())/60.0 + float64(nowIST.Second())/3600.0
 		}
 
 		rateLambda, regime := CalculateDiurnalRate(currentSimHour, cfg.SimulateBursts)
+
+		if rateLambda <= 0.001 {
+			// In deep quiescence (e.g. Night Quiescence), sleep for 5 seconds without dispatching requests
+			time.Sleep(5 * time.Second)
+			if time.Since(lastStats) >= cfg.StatsInterval {
+				metrics.SnapshotAndFlush(currentSimHour, regime, 0.0)
+				lastStats = time.Now()
+			}
+			continue
+		}
 
 		// Sample Poisson arrival interval Δt = -ln(U) / λ
 		u := rand.Float64()
@@ -586,7 +717,7 @@ func main() {
 		time.Sleep(sleepDuration)
 
 		// Generate synthetic request
-		payload := GenerateEndpointRequest(elapsedReal)
+		payload := GenerateEndpointRequest(time.Now(), elapsedReal, currentSimHour, burstCtrl)
 		atomic.AddUint64(&metrics.TotalDispatched, 1)
 
 		// Dual mirrored dispatch in parallel goroutine

@@ -21,6 +21,7 @@ set -eo pipefail
 # ------------------------------------------------------------------------------
 CLUSTER_NAME="adaptive-cluster"
 MODE="timewarp"          # "timewarp" (fast demo) or "realtime" (3-4 days)
+PROFILE="fast"           # "fast" (1h validation: 2m burst / 8m idle) or "48h" (stochastic diurnal)
 TIMEWARP_FACTOR=48       # 48x = 24-hour cycle compressed into 30 minutes
 DURATION="30m"           # Default duration (30m for timewarp, 96h for realtime)
 SKIP_BUILD=false
@@ -49,6 +50,7 @@ log_error() { echo -e "    ${RED}✖${NC} $1"; }
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
+        -p|--profile) PROFILE="$2"; shift ;;
         -m|--mode) MODE="$2"; shift ;;
         -d|--duration) DURATION="$2"; shift ;;
         -w|--timewarp-factor) TIMEWARP_FACTOR="$2"; shift ;;
@@ -56,8 +58,9 @@ while [[ "$#" -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [options]"
             echo "Options:"
+            echo "  -p, --profile <fast|48h>        Workload profile: 'fast' (1h validation) or '48h' (default: fast)"
             echo "  -m, --mode <timewarp|realtime>  Execution mode (default: timewarp)"
-            echo "  -d, --duration <time>           Duration (e.g. 30m, 96h; default: 30m)"
+            echo "  -d, --duration <time>           Duration (e.g. 1h, 48h, 30m; default: 30m)"
             echo "  -w, --timewarp-factor <int>     Time acceleration factor (default: 48)"
             echo "  --skip-build                    Skip Docker image builds"
             exit 0
@@ -66,6 +69,15 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+if [ "$PROFILE" = "fast" ]; then
+    MODE="realtime"
+fi
+
+if [ "$PROFILE" = "48h" ] && [ "$DURATION" = "30m" ]; then
+    DURATION="48h"
+    MODE="realtime"
+fi
 
 if [ "$MODE" = "realtime" ] && [ "$DURATION" = "30m" ]; then
     DURATION="96h"
@@ -149,6 +161,13 @@ except Exception:
 fi
 
 cleanup() {
+    # Immediately unregister traps to prevent duplicate execution (e.g. INT followed by EXIT)
+    trap - EXIT INT TERM
+    if [ "${CLEANUP_EXECUTED:-false}" = true ]; then
+        return 0
+    fi
+    CLEANUP_EXECUTED=true
+
     log_header "CLEANUP, FINAL REPORT & FULL TESTBED TEARDOWN"
     log_info "Terminating background processes (port-forwards & dashboard)..."
     for pid in "${BG_PIDS[@]}"; do
@@ -420,6 +439,7 @@ kill_port 9090
 kill_port 8085
 kill_port 8080
 kill_port 8081
+kill_port 8082
 kill_port 8090
 
 log_info "Starting port-forward: Prometheus (:9090)..."
@@ -428,6 +448,10 @@ BG_PIDS+=($!)
 
 log_info "Starting port-forward: Demand Activator (:8085 -> :8083)..."
 kubectl port-forward -n adaptive-scheduler svc/adaptive-scheduler 8085:8083 >/dev/null 2>&1 &
+BG_PIDS+=($!)
+
+log_info "Starting port-forward: Scheduler Evaluation API (:8082 -> :8081)..."
+kubectl port-forward -n adaptive-scheduler svc/adaptive-scheduler 8082:8081 >/dev/null 2>&1 &
 BG_PIDS+=($!)
 
 log_info "Starting port-forward: Default Gateway (:8080 -> :80)..."
@@ -479,6 +503,7 @@ if [ -x "$SIM_BIN" ]; then
     log_info "Running native traffic simulator binary in WSL (direct local port-forward access)..."
     (cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
         "$SIM_BIN" \
+            -profile="$PROFILE" \
             -target-default="http://127.0.0.1:8080" \
             -target-adaptive="http://127.0.0.1:8081" \
             -mode="$MODE" \
@@ -488,6 +513,7 @@ if [ -x "$SIM_BIN" ]; then
 elif [ -n "$GO_BIN" ]; then
     (cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
         "$GO_BIN" run main.go \
+            -profile="$PROFILE" \
             -target-default="http://127.0.0.1:8080" \
             -target-adaptive="http://127.0.0.1:8081" \
             -mode="$MODE" \
@@ -500,6 +526,7 @@ else
         -v "$SCRIPT_DIR/benchmark-workloads/traffic-simulator:/data" \
         -v "$SCRIPT_DIR/benchmark-workloads/telemetry:/telemetry" \
         benchmark-traffic-simulator:latest \
+        -profile="$PROFILE" \
         -target-default="http://127.0.0.1:8080" \
         -target-adaptive="http://127.0.0.1:8081" \
         -mode="$MODE" \

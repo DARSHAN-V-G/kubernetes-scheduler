@@ -14,6 +14,12 @@ import urllib.parse
 import urllib.request
 from collections import deque
 from threading import Lock
+import datetime
+
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30), name="IST")
+
+def get_ist_timestamp() -> str:
+    return datetime.datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S+05:30")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "benchmark_telemetry.sqlite3")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
@@ -23,10 +29,11 @@ live_buffer = deque(maxlen=600)
 buffer_lock = Lock()
 
 def init_database(db_path=DB_PATH, reset=False):
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=15.0)
     cur = conn.cursor()
-    cur.execute("PRAGMA journal_mode=DELETE;")
+    cur.execute("PRAGMA journal_mode=WAL;")
     cur.execute("PRAGMA synchronous=NORMAL;")
+    cur.execute("PRAGMA busy_timeout=10000;")
 
     if reset:
         cur.execute("DROP TABLE IF EXISTS telemetry_samples;")
@@ -90,20 +97,159 @@ def init_database(db_path=DB_PATH, reset=False):
         );
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS scheduler_evaluation_cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER DEFAULT 1,
+            cycle_number INTEGER DEFAULT 0,
+            timestamp TEXT NOT NULL,
+            elapsed_seconds REAL NOT NULL,
+            pod_name TEXT NOT NULL,
+            namespace TEXT NOT NULL,
+            workload_kind TEXT DEFAULT 'Pod',
+            phase TEXT DEFAULT 'Running',
+            node_name TEXT DEFAULT '',
+            in_cooldown INTEGER DEFAULT 0,
+            cooldown_remaining_sec REAL DEFAULT 0.0,
+            is_candidate INTEGER NOT NULL,
+            stage1_classification TEXT NOT NULL,
+            cpu_millicores REAL DEFAULT 0.0,
+            cpu_threshold_millicores REAL DEFAULT 20.0,
+            cpu_util_pct REAL DEFAULT 0.0,
+            memory_working_set_mb REAL DEFAULT 0.0,
+            memory_requested_mb REAL DEFAULT 0.0,
+            memory_util_pct REAL DEFAULT 0.0,
+            network_bytes_sec REAL DEFAULT 0.0,
+            qps REAL DEFAULT 0.0,
+            idle_duration_sec REAL DEFAULT 0.0,
+            min_idle_duration_sec REAL DEFAULT 30.0,
+            duration_satisfied INTEGER DEFAULT 0,
+            sample_count INTEGER DEFAULT 0,
+            min_samples INTEGER DEFAULT 3,
+            samples_satisfied INTEGER DEFAULT 0,
+            is_consistently_idle INTEGER DEFAULT 0,
+            stage1_reasons TEXT,
+            composite_score REAL DEFAULT 0.0,
+            decision_action TEXT NOT NULL,
+            soft_threshold REAL DEFAULT 0.3361,
+            full_threshold REAL DEFAULT 0.5927,
+            score_cpu REAL DEFAULT 0.0,
+            score_mem REAL DEFAULT 0.0,
+            score_benefit REAL DEFAULT 0.0,
+            score_priority REAL DEFAULT 0.0,
+            score_state REAL DEFAULT 0.0,
+            score_replica REAL DEFAULT 0.0,
+            full_reclaim_allowed INTEGER DEFAULT 1,
+            soft_reclaim_allowed INTEGER DEFAULT 1,
+            rejection_reasons TEXT,
+            decision_reasons TEXT,
+            FOREIGN KEY(run_id) REFERENCES benchmark_runs(run_id)
+        );
+    """)
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_run ON telemetry_samples(run_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry_samples(timestamp);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_checkpoint_run ON checkpoint_events(run_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_eval_run ON scheduler_evaluation_cycles(run_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_eval_pod ON scheduler_evaluation_cycles(pod_name);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_eval_ts ON scheduler_evaluation_cycles(timestamp);")
     conn.commit()
     conn.close()
+
+def record_evaluation_cycle(run_id: int, cycle_number: int, elapsed_seconds: float, pod_eval: dict, db_path=DB_PATH):
+    try:
+        conn = sqlite3.connect(db_path, timeout=15.0)
+        cur = conn.cursor()
+        cur.execute("PRAGMA busy_timeout=10000;")
+        ts = get_ist_timestamp()
+        cur.execute("""
+            INSERT INTO scheduler_evaluation_cycles (
+                run_id, cycle_number, timestamp, elapsed_seconds,
+                pod_name, namespace, workload_kind, phase, node_name,
+                in_cooldown, cooldown_remaining_sec,
+                is_candidate, stage1_classification,
+                cpu_millicores, cpu_threshold_millicores, cpu_util_pct,
+                memory_working_set_mb, memory_requested_mb, memory_util_pct,
+                network_bytes_sec, qps,
+                idle_duration_sec, min_idle_duration_sec, duration_satisfied,
+                sample_count, min_samples, samples_satisfied, is_consistently_idle,
+                stage1_reasons,
+                composite_score, decision_action, soft_threshold, full_threshold,
+                score_cpu, score_mem, score_benefit, score_priority, score_state, score_replica,
+                full_reclaim_allowed, soft_reclaim_allowed,
+                rejection_reasons, decision_reasons
+            ) VALUES (
+                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?,
+                ?, ?
+            )
+        """, (
+            run_id, cycle_number, ts, elapsed_seconds,
+            pod_eval.get("pod_name", ""),
+            pod_eval.get("namespace", ""),
+            pod_eval.get("workload_kind", "Pod"),
+            pod_eval.get("phase", "Running"),
+            pod_eval.get("node_name", ""),
+            1 if pod_eval.get("in_cooldown") else 0,
+            pod_eval.get("cooldown_remaining_sec", 0.0),
+            1 if pod_eval.get("is_candidate") else 0,
+            pod_eval.get("stage1_classification", "ACTIVE"),
+            pod_eval.get("cpu_millicores", 0.0),
+            pod_eval.get("cpu_threshold_millicores", 20.0),
+            pod_eval.get("cpu_util_pct", 0.0),
+            pod_eval.get("memory_working_set_mb", 0.0),
+            pod_eval.get("memory_requested_mb", 0.0),
+            pod_eval.get("memory_util_pct", 0.0),
+            pod_eval.get("network_bytes_sec", 0.0),
+            pod_eval.get("qps", 0.0),
+            pod_eval.get("idle_duration_sec", 0.0),
+            pod_eval.get("min_idle_duration_sec", 30.0),
+            1 if pod_eval.get("duration_satisfied") else 0,
+            pod_eval.get("sample_count", 0),
+            pod_eval.get("min_samples", 3),
+            1 if pod_eval.get("samples_satisfied") else 0,
+            1 if pod_eval.get("is_consistently_idle") else 0,
+            json.dumps(pod_eval.get("stage1_reasons", [])),
+            pod_eval.get("composite_score", 0.0),
+            pod_eval.get("decision_action", "KEEP"),
+            pod_eval.get("soft_threshold", 0.3361),
+            pod_eval.get("full_threshold", 0.5927),
+            pod_eval.get("score_cpu", 0.0),
+            pod_eval.get("score_mem", 0.0),
+            pod_eval.get("score_benefit", 0.0),
+            pod_eval.get("score_priority", 0.0),
+            pod_eval.get("score_state", 0.0),
+            pod_eval.get("score_replica", 0.0),
+            1 if pod_eval.get("full_reclaim_allowed", True) else 0,
+            1 if pod_eval.get("soft_reclaim_allowed", True) else 0,
+            json.dumps(pod_eval.get("rejection_reasons", [])),
+            json.dumps(pod_eval.get("decision_reasons", []))
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[WARN] Failed to record evaluation cycle in sqlite: {e}")
 
 def record_checkpoint_event(run_id: int, pod_name: str, namespace: str, action: str,
                             score: float = 0.0, memory_freed_mb: float = 0.0,
                             checkpoint_size_mb: float = 0.0, checkpoint_path: str = "",
                             db_path=DB_PATH):
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=15.0)
         cur = conn.cursor()
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        cur.execute("PRAGMA busy_timeout=10000;")
+        ts = get_ist_timestamp()
         cur.execute("""
             INSERT INTO checkpoint_events (
                 run_id, timestamp, pod_name, namespace, action,
@@ -131,7 +277,7 @@ def get_or_create_active_run_id(db_path=DB_PATH, mode="timewarp", timewarp_facto
     if row:
         run_id = row[0]
     else:
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ts = get_ist_timestamp()
         cur.execute("""
             INSERT INTO benchmark_runs (start_time, mode, timewarp_factor, duration_planned, status)
             VALUES (?, ?, ?, ?, 'RUNNING')
@@ -145,7 +291,7 @@ def finish_benchmark_run(run_id: int, db_path=DB_PATH, status="COMPLETED"):
     try:
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ts = get_ist_timestamp()
         cur.execute("SELECT COUNT(*) FROM telemetry_samples WHERE run_id = ?;", (run_id,))
         count = cur.fetchone()[0] or 0
         cur.execute("""
@@ -177,7 +323,7 @@ def query_replica_count(namespace: str, prom_url: str = PROMETHEUS_URL) -> int:
     return int(val) if val > 0 else 0
 
 def collect_sample(elapsed: float, prom_url: str = PROMETHEUS_URL) -> dict:
-    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    ts = get_ist_timestamp()
 
     # 1. Base Host Physical Available Memory
     q_node_free = "node_memory_MemAvailable_bytes / (1024 * 1024)"

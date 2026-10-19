@@ -181,6 +181,7 @@ func (m *K8sInformerManager) syncNode(node *corev1.Node) {
 		HasMemoryPressure:        hasMemPressure,
 		HasDiskPressure:          hasDiskPressure,
 		HasPIDPressure:           hasPIDPressure,
+		Labels:                   node.Labels,
 		LastUpdated:              time.Now(),
 	}
 

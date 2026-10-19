@@ -75,6 +75,8 @@ spec:
             - "--leader-elect-resource-namespace=adaptive-scheduler"
             - "--prometheus-url=http://127.0.0.1:9090"
             - "--scrape-interval=10s"
+            - "--idle-qps-threshold=0.1"
+            - "--idle-min-duration=60s"
             - "--http-port=8081"
           ports:
             - containerPort: 8081

@@ -41,7 +41,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	cfg := &Config{
 		CPUIdleThresholdPct:    0.30,
-		MemoryIdleThresholdPct: 0.80,
+		MemoryIdleThresholdPct: 1.0,
 		QPSIdleThreshold:       2.0,
 		NetIdleThresholdBytes:  15360.0,
 		MinIdleDuration:        30 * time.Second,

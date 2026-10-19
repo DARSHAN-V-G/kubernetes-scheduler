@@ -93,9 +93,21 @@ func (f *HeadroomFilter) Filter(pod *corev1.Pod, node *metrics.NodeMetrics) Filt
 		return res
 	}
 
+	// 2. NodeSelector & NodeAffinity Constraints
+	if pod != nil && len(pod.Spec.NodeSelector) > 0 {
+		for k, v := range pod.Spec.NodeSelector {
+			nodeVal, exists := node.Labels[k]
+			if !exists || nodeVal != v {
+				res.Eligible = false
+				res.Reason = fmt.Sprintf("node label %s=%s does not match pod nodeSelector %s=%s", k, nodeVal, k, v)
+				return res
+			}
+		}
+	}
+
 	reqCPU, reqMem := PodRequests(pod)
 
-	// 2. Declarative Allocatable Headroom Check
+	// 3. Declarative Allocatable Headroom Check
 	if (node.AllocatedRequestedCPU + reqCPU) > node.AllocatableCPUMillis {
 		res.Eligible = false
 		res.Reason = fmt.Sprintf(

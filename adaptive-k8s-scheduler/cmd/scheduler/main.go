@@ -172,8 +172,24 @@ func main() {
 		}
 	}()
 
+	var cycleCounter uint64 = 0
+
 	// 6. Start HTTP Server
-	server := startHTTPServer(cfg.Collector.HTTPPort, cache, adaptiveSched, restoreEngine, recordWriter, os.Getenv("RESTORE_API_TOKEN"), logger)
+	server := startHTTPServer(
+		cfg.Collector.HTTPPort,
+		cache,
+		adaptiveSched,
+		restoreEngine,
+		recordWriter,
+		os.Getenv("RESTORE_API_TOKEN"),
+		decisionEngine,
+		detectorConfig,
+		schedCfg.SchedulerName,
+		reclaimCooldown,
+		&reclaimCooldownMu,
+		&cycleCounter,
+		logger,
+	)
 
 	// 6b. Start Demand Activator & Scale-from-Zero Buffer Gateway
 	cooldownRecorder := &schedulerCooldownAdapter{
@@ -218,36 +234,59 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				cycleCounter++
 				allPods := cache.GetAllPods()
 				for _, pod := range allPods {
-					// Strictly monitor and evaluate only pods targeted to adaptive-scheduler
-					if pod.SchedulerName != schedCfg.SchedulerName {
+					// Strictly monitor and evaluate only workload pods targeted to adaptive-scheduler
+					if pod.Namespace == "adaptive-scheduler" || pod.Namespace == "kube-system" {
+						continue
+					}
+					if pod.SchedulerName != schedCfg.SchedulerName && !strings.Contains(pod.Namespace, "adaptive") {
 						continue
 					}
 
 					podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 					reclaimCooldownMu.Lock()
 					lastReclaimed, recentlyReclaimed := reclaimCooldown[podKey]
-					if recentlyReclaimed && time.Since(lastReclaimed) < 2*time.Minute {
+					inCooldown := recentlyReclaimed && time.Since(lastReclaimed) < 2*time.Minute
+					if inCooldown {
 						reclaimCooldownMu.Unlock()
-						continue
+					} else {
+						if recentlyReclaimed {
+							delete(reclaimCooldown, podKey)
+						}
+						reclaimCooldownMu.Unlock()
 					}
-					if recentlyReclaimed {
-						delete(reclaimCooldown, podKey)
-					}
-					reclaimCooldownMu.Unlock()
 
 					window, _ := cache.GetWindow(pod.Namespace, pod.Name)
 					profile := analyzer.Analyze(pod, window, nil)
 					classification := detector.Classify(profile, detectorConfig)
+					decisionResult := decisionEngine.Evaluate(profile, pod)
+
+					// Log every 10-second evaluation cycle for full visibility
+					logger.Info(fmt.Sprintf("[CYCLE #%03d | 10s] Pod Evaluation", cycleCounter),
+						zap.String("pod", podKey),
+						zap.String("stage1_candidate", classification.Class.String()),
+						zap.Bool("is_candidate", classification.Class == detector.ClassIdle),
+						zap.Float64("cpu_milli", pod.TotalUsageCPUMillicores),
+						zap.Duration("idle_dur", pod.IdleDuration),
+						zap.Int("samples", profile.SampleCount),
+						zap.Bool("consistent", profile.IsConsistentlyIdle),
+						zap.Float64("score", decisionResult.Score),
+						zap.String("action", decisionResult.Action.String()),
+						zap.Bool("in_cooldown", inCooldown),
+					)
+
+					if inCooldown {
+						continue
+					}
 					if classification.Class != detector.ClassIdle {
 						continue
 					}
-					decisionResult := decisionEngine.Evaluate(profile, pod)
 
 					if decisionResult.Action == decision.ActionFullReclaim || decisionResult.Action == decision.ActionSoftReclaim {
 						logger.Info("Reclamation Engine evaluating action",
-							zap.String("pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)),
+							zap.String("pod", podKey),
 							zap.String("action", decisionResult.Action.String()),
 							zap.Float64("score", decisionResult.Score),
 						)
@@ -443,7 +482,164 @@ type checkpointRecordReader interface {
 	Get(context.Context, string, string) (*v1alpha1.CheckpointRecord, error)
 }
 
-func startHTTPServer(port int, cache *metrics.MetricsCache, sched *scheduler.AdaptiveScheduler, restoreEngine *action.RestoreEngine, recordReader checkpointRecordReader, restoreToken string, logger *zap.Logger) *http.Server {
+type PodEvaluationDTO struct {
+	PodName            string   `json:"pod_name"`
+	Namespace          string   `json:"namespace"`
+	SchedulerName      string   `json:"scheduler_name"`
+	WorkloadKind       string   `json:"workload_kind"`
+	Phase              string   `json:"phase"`
+	NodeName           string   `json:"node_name"`
+	InCooldown         bool     `json:"in_cooldown"`
+	CooldownRemainingS float64  `json:"cooldown_remaining_sec"`
+
+	// Stage 1: Candidate Qualification Gate
+	IsCandidate        bool     `json:"is_candidate"`
+	Stage1Class        string   `json:"stage1_classification"`
+	CPUMillicores      float64  `json:"cpu_millicores"`
+	CPUThresholdMillis float64  `json:"cpu_threshold_millicores"`
+	CPUUtilPct         float64  `json:"cpu_util_pct"`
+	MemoryWorkingSetMB float64  `json:"memory_working_set_mb"`
+	MemoryRequestedMB  float64  `json:"memory_requested_mb"`
+	MemoryUtilPct      float64  `json:"memory_util_pct"`
+	NetworkBytesPerSec float64  `json:"network_bytes_sec"`
+	QPS                float64  `json:"qps"`
+	IdleDurationSec    float64  `json:"idle_duration_sec"`
+	MinIdleDurationSec float64  `json:"min_idle_duration_sec"`
+	DurationSatisfied  bool     `json:"duration_satisfied"`
+	SampleCount        int      `json:"sample_count"`
+	MinSamples         int      `json:"min_samples"`
+	SamplesSatisfied   bool     `json:"samples_satisfied"`
+	IsConsistentlyIdle bool     `json:"is_consistently_idle"`
+	Stage1Reasons      []string `json:"stage1_reasons"`
+
+	// Stage 2: Decision Scoring Engine
+	CompositeScore     float64  `json:"composite_score"`
+	DecisionAction     string   `json:"decision_action"`
+	SoftThreshold      float64  `json:"soft_threshold"`
+	FullThreshold      float64  `json:"full_threshold"`
+	ScoreCPU           float64  `json:"score_cpu"`
+	ScoreMemory        float64  `json:"score_mem"`
+	ScoreBenefit       float64  `json:"score_benefit"`
+	ScorePriority      float64  `json:"score_priority"`
+	ScoreState         float64  `json:"score_state"`
+	ScoreReplica       float64  `json:"score_replica"`
+	FullReclaimAllowed bool     `json:"full_reclaim_allowed"`
+	SoftReclaimAllowed bool     `json:"soft_reclaim_allowed"`
+	RejectionReasons   []string `json:"rejection_reasons"`
+	DecisionReasons    []string `json:"decision_reasons"`
+}
+
+type EvaluationsResponse struct {
+	Timestamp   string             `json:"timestamp"`
+	CycleNumber uint64             `json:"cycle_number"`
+	Pods        []PodEvaluationDTO `json:"pods"`
+}
+
+func buildPodEvaluationDTO(
+	pod *metrics.PodMetrics,
+	cache *metrics.MetricsCache,
+	decisionEngine *decision.Engine,
+	detectorConfig *detector.Config,
+	cooldownStore map[string]time.Time,
+	cooldownMu *sync.Mutex,
+) PodEvaluationDTO {
+	podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+	var inCooldown bool
+	var cooldownRemaining float64
+	if cooldownMu != nil && cooldownStore != nil {
+		cooldownMu.Lock()
+		if lastReclaimed, exists := cooldownStore[podKey]; exists {
+			elapsed := time.Since(lastReclaimed)
+			if elapsed < 2*time.Minute {
+				inCooldown = true
+				cooldownRemaining = (2*time.Minute - elapsed).Seconds()
+			}
+		}
+		cooldownMu.Unlock()
+	}
+
+	window, _ := cache.GetWindow(pod.Namespace, pod.Name)
+	profile := analyzer.Analyze(pod, window, nil)
+	classification := detector.Classify(profile, detectorConfig)
+	decisionResult := decisionEngine.Evaluate(profile, pod)
+
+	var reqMemMB, usedMemMB, memUtilPct float64
+	if pod.TotalRequestedMemory > 0 {
+		reqMemMB = float64(pod.TotalRequestedMemory) / (1024 * 1024)
+		usedMemMB = float64(pod.TotalUsageMemoryBytes) / (1024 * 1024)
+		memUtilPct = (float64(pod.TotalUsageMemoryBytes) / float64(pod.TotalRequestedMemory)) * 100
+	}
+	var cpuUtilPct float64
+	if pod.TotalRequestedCPUMillis > 0 {
+		cpuUtilPct = (pod.TotalUsageCPUMillicores / float64(pod.TotalRequestedCPUMillis)) * 100
+	}
+
+	workloadKind := "Pod"
+	if pod.Replicas != nil && pod.Replicas.OwnerKind != "" {
+		workloadKind = pod.Replicas.OwnerKind
+	}
+
+	policy := decisionEngine.Policy()
+
+	return PodEvaluationDTO{
+		PodName:            pod.Name,
+		Namespace:          pod.Namespace,
+		SchedulerName:      pod.SchedulerName,
+		WorkloadKind:       workloadKind,
+		Phase:              string(pod.Phase),
+		NodeName:           pod.NodeName,
+		InCooldown:         inCooldown,
+		CooldownRemainingS: cooldownRemaining,
+		IsCandidate:        classification.Class == detector.ClassIdle,
+		Stage1Class:        classification.Class.String(),
+		CPUMillicores:      pod.TotalUsageCPUMillicores,
+		CPUThresholdMillis: 20.0,
+		CPUUtilPct:         cpuUtilPct,
+		MemoryWorkingSetMB: usedMemMB,
+		MemoryRequestedMB:  reqMemMB,
+		MemoryUtilPct:      memUtilPct,
+		NetworkBytesPerSec: pod.TotalNetworkBytesSec,
+		QPS:                pod.RequestQPS,
+		IdleDurationSec:    pod.IdleDuration.Seconds(),
+		MinIdleDurationSec: detectorConfig.MinIdleDuration.Seconds(),
+		DurationSatisfied:  pod.IdleDuration >= detectorConfig.MinIdleDuration,
+		SampleCount:        profile.SampleCount,
+		MinSamples:         detectorConfig.MinSampleCount,
+		SamplesSatisfied:   profile.SampleCount >= detectorConfig.MinSampleCount,
+		IsConsistentlyIdle: profile.IsConsistentlyIdle,
+		Stage1Reasons:      classification.Reasons,
+		CompositeScore:     decisionResult.Score,
+		DecisionAction:     decisionResult.Action.String(),
+		SoftThreshold:      policy.SoftReclaimScoreThreshold,
+		FullThreshold:      policy.FullReclaimScoreThreshold,
+		ScoreCPU:           decisionResult.Scores.CPU,
+		ScoreMemory:        decisionResult.Scores.Memory,
+		ScoreBenefit:       decisionResult.Scores.Benefit,
+		ScorePriority:      decisionResult.Scores.Priority,
+		ScoreState:         decisionResult.Scores.State,
+		ScoreReplica:       decisionResult.Scores.Replica,
+		FullReclaimAllowed: decisionResult.Capabilities.FullReclaimAllowed,
+		SoftReclaimAllowed: decisionResult.Capabilities.SoftReclaimAllowed,
+		RejectionReasons:   decisionResult.RejectionReasons,
+		DecisionReasons:    decisionResult.Reasons,
+	}
+}
+
+func startHTTPServer(
+	port int,
+	cache *metrics.MetricsCache,
+	sched *scheduler.AdaptiveScheduler,
+	restoreEngine *action.RestoreEngine,
+	recordReader checkpointRecordReader,
+	restoreToken string,
+	decisionEngine *decision.Engine,
+	detectorConfig *detector.Config,
+	schedulerName string,
+	reclaimCooldown map[string]time.Time,
+	reclaimCooldownMu *sync.Mutex,
+	cycleCounter *uint64,
+	logger *zap.Logger,
+) *http.Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -472,6 +668,33 @@ func startHTTPServer(port int, cache *metrics.MetricsCache, sched *scheduler.Ada
 		pods := cache.GetAllPods()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(pods)
+	})
+
+	mux.HandleFunc("/api/v1/evaluations", func(w http.ResponseWriter, r *http.Request) {
+		allPods := cache.GetAllPods()
+		var evals []PodEvaluationDTO
+		for _, pod := range allPods {
+			if pod.Namespace == "adaptive-scheduler" || pod.Namespace == "kube-system" {
+				continue
+			}
+			if pod.SchedulerName != schedulerName && !strings.Contains(pod.Namespace, "adaptive") {
+				continue
+			}
+			dto := buildPodEvaluationDTO(pod, cache, decisionEngine, detectorConfig, reclaimCooldown, reclaimCooldownMu)
+			evals = append(evals, dto)
+		}
+		var currCycle uint64
+		if cycleCounter != nil {
+			currCycle = *cycleCounter
+		}
+		resp := EvaluationsResponse{
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			CycleNumber: currCycle,
+			Pods:        evals,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/v1/checkpoints/", func(w http.ResponseWriter, r *http.Request) {

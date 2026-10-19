@@ -162,6 +162,7 @@ type NodeMetrics struct {
 	HasDiskPressure   bool                   `json:"hasDiskPressure"`
 	HasPIDPressure    bool                   `json:"hasPidPressure"`
 	PodCount          int                    `json:"podCount"`
+	Labels            map[string]string      `json:"labels"`
 	LastUpdated       time.Time              `json:"lastUpdated"`
 }
 
@@ -174,6 +175,12 @@ func (n *NodeMetrics) Clone() *NodeMetrics {
 	if n.Conditions != nil {
 		clone.Conditions = make([]corev1.NodeCondition, len(n.Conditions))
 		copy(clone.Conditions, n.Conditions)
+	}
+	if n.Labels != nil {
+		clone.Labels = make(map[string]string, len(n.Labels))
+		for k, v := range n.Labels {
+			clone.Labels[k] = v
+		}
 	}
 	return &clone
 }
@@ -235,8 +242,8 @@ func DefaultCollectorConfig() *CollectorConfig {
 		HTTPTimeout:      5 * time.Second,
 		WindowSize:       5, // 5 samples * 10s = 50s sliding window
 		IdleCPUThreshold: 20.0,
-		IdleNetThreshold: 15360.0,
-		IdleQPSThreshold: 2.0,
+		IdleNetThreshold: 10240.0,
+		IdleQPSThreshold: 0.1,
 		IdleMinDuration:  60 * time.Second,
 		HTTPPort:         8081,
 	}

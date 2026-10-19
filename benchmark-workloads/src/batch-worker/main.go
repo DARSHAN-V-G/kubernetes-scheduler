@@ -53,8 +53,8 @@ func simulateHeavyCompute(task BatchTask) {
 	}
 	retainedLock.Unlock()
 
-	// 2. CPU Burst: Perform iterative SHA-256 rounds for ~5 seconds
-	targetDuration := 5 * time.Second
+	// 2. CPU Burst: Perform iterative SHA-256 rounds for ~100ms
+	targetDuration := 100 * time.Millisecond
 	var lastHash string
 	seed := fmt.Sprintf("%s-%d", task.JobID, time.Now().UnixNano())
 
@@ -71,14 +71,26 @@ func simulateHeavyCompute(task BatchTask) {
 		task.JobID, time.Since(start), lastHash)
 }
 
+var istLocation *time.Location
+
+func init() {
+	var err error
+	istLocation, err = time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		istLocation = time.FixedZone("IST", 5*3600+30*60)
+	}
+	time.Local = istLocation
+}
+
 func main() {
 	redisAddr := getEnv("REDIS_ADDR", "cache:6379")
-	log.Printf("Starting Batch Worker daemon. Connecting to Redis queue at %s...", redisAddr)
+	log.Printf("[%s] Starting Batch Worker daemon. Connecting to Redis queue at %s...",
+		time.Now().In(istLocation).Format("15:04:05 IST"), redisAddr)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		DialTimeout:  5 * time.Second,
-		ReadTimeout:  15 * time.Second,
+		ReadTimeout:  0, // indefinite read timeout for blocking operations
 		WriteTimeout: 5 * time.Second,
 	})
 
@@ -91,27 +103,27 @@ func main() {
 
 	go func() {
 		<-stop
-		log.Println("Received termination signal. Gracefully exiting worker loop...")
+		log.Printf("[%s] Received termination signal. Gracefully exiting worker loop...",
+			time.Now().In(istLocation).Format("15:04:05 IST"))
 		cancel()
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Batch Worker stopped gracefully.")
+			log.Printf("[%s] Batch Worker stopped gracefully.", time.Now().In(istLocation).Format("15:04:05 IST"))
 			return
 		default:
-			// BLPop blocks for up to 5 seconds waiting for a new task
-			results, err := rdb.BLPop(ctx, 5*time.Second, "queue:batch-tasks").Result()
+			// BLPop blocks indefinitely (timeout: 0) on Redis server.
+			// This is a true zero-overhead blocking call that generates ZERO network packets
+			// and zero CPU usage while waiting, allowing the pod to reliably qualify as IDLE.
+			results, err := rdb.BLPop(ctx, 0, "queue:batch-tasks").Result()
 			if err != nil {
-				if err == redis.Nil {
-					// Timeout with no tasks -> completely idle
-					continue
-				}
 				if ctx.Err() != nil {
 					return
 				}
-				log.Printf("Waiting for tasks on 'queue:batch-tasks' (Redis status: %v)...", err)
+				log.Printf("[%s] Redis queue listener error: %v. Retrying in 2s...",
+					time.Now().In(istLocation).Format("15:04:05 IST"), err)
 				time.Sleep(2 * time.Second)
 				continue
 			}
@@ -122,7 +134,8 @@ func main() {
 				if err := json.Unmarshal([]byte(results[1]), &task); err == nil {
 					simulateHeavyCompute(task)
 				} else {
-					log.Printf("Failed to decode task JSON: %v", err)
+					log.Printf("[%s] Failed to decode task JSON: %v",
+						time.Now().In(istLocation).Format("15:04:05 IST"), err)
 				}
 			}
 		}

@@ -365,6 +365,48 @@
         .log-lvl-error { color: #f87171; font-weight: 700; }
         .log-msg { color: #e2e8f0; }
 
+        .score-bar-container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.06);
+            height: 14px;
+            border-radius: 7px;
+            overflow: visible;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            margin-top: 6px;
+        }
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.4s ease;
+        }
+        .thresh-marker {
+            position: absolute;
+            top: -4px;
+            bottom: -4px;
+            width: 2px;
+            z-index: 2;
+        }
+        .thresh-marker.soft {
+            left: 33.61%;
+            background: #06b6d4;
+            box-shadow: 0 0 6px #06b6d4;
+        }
+        .thresh-marker.full {
+            left: 59.27%;
+            background: #c084fc;
+            box-shadow: 0 0 6px #c084fc;
+        }
+        .metric-chip {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 0.72rem;
+            margin: 2px 4px 2px 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
         @media (max-width: 900px) {
             .workload-grid { grid-template-columns: 1fr; }
         }
@@ -528,6 +570,50 @@
                     <div class="pod-item"><div><strong>datastore (postgres)</strong><div class="pod-subdetail">Protected database</div></div> <span class="status-badge badge-running">RUNNING</span></div>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Real-Time Scheduler Candidate Gate & Autonomous Reclamation Scoring Matrix (10s Cycle Engine) -->
+    <section class="glass-panel" style="padding: 20px 24px; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="chart-title" style="margin-bottom:0;">Scheduler Candidate Gate & Reclamation Scoring Matrix</span>
+                <span class="brand-badge" style="font-size: 0.65rem; background: rgba(99, 102, 241, 0.15); color: var(--accent-cyan); border-color: rgba(6, 182, 212, 0.3);">
+                    ● 10s EVALUATION ENGINE
+                </span>
+                <span id="evalCycleBadge" class="brand-badge" style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.3);">
+                    CYCLE #0 · INITIALIZING
+                </span>
+            </div>
+            <div class="logs-controls">
+                <label for="evalCycleSelect" style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Cycle:</label>
+                <select id="evalCycleSelect" class="btn-ctrl" onchange="onCycleSelectChange()" style="cursor: pointer; min-width: 140px;">
+                    <option value="live">Live (Latest 10s Tick)</option>
+                </select>
+                <button class="btn-ctrl" onclick="fetchEvaluations()">Refresh Scoring</button>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto; max-height: 400px; overflow-y: auto; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08); background: #060911;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); background-color: #0d1322; color: #94a3b8; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 2;">
+                        <th style="padding: 10px 14px;">Pod Workload</th>
+                        <th style="padding: 10px 14px;">Stage 1: Candidate Gate</th>
+                        <th style="padding: 10px 14px;">Metrics (CPU / RAM / QPS)</th>
+                        <th style="padding: 10px 14px;">Idle Duration & Window</th>
+                        <th style="padding: 10px 14px; min-width: 200px;">Stage 2: Composite Score</th>
+                        <th style="padding: 10px 14px;">Decision & Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="evaluationsTableBody">
+                    <tr>
+                        <td colspan="6" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
+                            Awaiting scheduler 10-second evaluation cycle telemetry...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </section>
 
@@ -1109,6 +1195,7 @@
                     text.innerText = 'Live Telemetry Connected (1s Rate)';
                     loadLiveHistory();
                     connectSSE();
+                    fetchEvaluations();
                 } else {
                     isLiveMode = false;
                     if (liveEvtSource) {
@@ -1116,6 +1203,7 @@
                     }
                     dot.style.backgroundColor = 'var(--accent-cyan)';
                     text.innerText = `Loading Historical Run #${val}...`;
+                    fetchEvaluations();
 
                     fetch(`/api/run_data?run_id=${val}`)
                         .then(res => res.json())
@@ -1213,16 +1301,202 @@
                 .catch(() => {});
         }
 
+        // Fetch Scheduler Candidate Gate & Autonomous Reclamation Scoring Matrix
+        let isFetchingEvaluations = false;
+        function fetchEvaluations() {
+            if (isFetchingEvaluations) return;
+            isFetchingEvaluations = true;
+
+            const runSel = document.getElementById('runSelect');
+            const runVal = (runSel && runSel.value) ? runSel.value : 'live';
+            const cycleSel = document.getElementById('evalCycleSelect');
+            const cycleVal = (cycleSel && cycleSel.value) ? cycleSel.value : 'live';
+
+            let query = `?run_id=${encodeURIComponent(runVal)}`;
+            if (cycleVal && cycleVal !== 'live') {
+                query += `&cycle=${encodeURIComponent(cycleVal)}`;
+            }
+
+            fetch(`/api/evaluations${query}`)
+                .then(res => res.json())
+                .then(data => {
+                    isFetchingEvaluations = false;
+                    const tbody = document.getElementById('evaluationsTableBody');
+                    const badge = document.getElementById('evalCycleBadge');
+                    if (!tbody) return;
+
+                    // Update cycle selector with all recorded cycles
+                    if (cycleSel && Array.isArray(data.available_cycles)) {
+                        const previousVal = cycleSel.value || 'live';
+                        const options = ['<option value="live">Live (Latest 10s Tick)</option>'];
+                        data.available_cycles.forEach(item => {
+                            const cNum = typeof item === 'object' ? item.cycle : item;
+                            const cTime = (typeof item === 'object' && item.timestamp) ? ` · ${item.timestamp.substring(11, 19)}` : '';
+                            const cElapsed = (typeof item === 'object' && item.elapsed) ? ` (T+${Math.round(item.elapsed)}s${cTime})` : '';
+                            options.push(`<option value="${cNum}">Cycle #${cNum}${cElapsed}</option>`);
+                        });
+
+                        const currentOpts = Array.from(cycleSel.options).map(o => o.value).join(',');
+                        const newOpts = ['live', ...data.available_cycles.map(item => String(typeof item === 'object' ? item.cycle : item))].join(',');
+
+                        if (currentOpts !== newOpts) {
+                            cycleSel.innerHTML = options.join('');
+                            if (previousVal && Array.from(cycleSel.options).some(o => o.value === previousVal)) {
+                                cycleSel.value = previousVal;
+                            } else {
+                                cycleSel.value = 'live';
+                            }
+                        }
+                    }
+
+                    if (badge) {
+                        const cNum = data.cycle_number || 0;
+                        const elap = data.elapsed_seconds ? ` · T+${Math.round(data.elapsed_seconds)}s` : '';
+                        const ts = data.timestamp ? ` · ${data.timestamp.substring(11, 19)}` : '';
+                        const isLive = (!cycleSel || cycleSel.value === 'live');
+                        badge.textContent = `CYCLE #${cNum}${elap}${ts}${isLive ? '' : ' (HISTORICAL)'}`;
+                        badge.style.color = (cNum > 0) ? 'var(--accent-emerald)' : 'var(--text-muted)';
+                    }
+
+                    const pods = data.pods || [];
+                    if (!Array.isArray(pods) || pods.length === 0) {
+                        tbody.innerHTML = `
+                            <tr>
+                                <td colspan="6" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
+                                    No pod evaluations recorded for this cycle yet.
+                                </td>
+                            </tr>`;
+                        return;
+                    }
+
+                    let html = '';
+                    pods.forEach(p => {
+                        // Stage 1 Gate
+                        let gateBadge = '';
+                        if (p.is_candidate) {
+                            gateBadge = `<span class="status-badge" style="background:rgba(16,185,129,0.22); color:#10b981; border:1px solid rgba(16,185,129,0.5); font-weight:700;">✓ CANDIDATE (IDLE)</span>`;
+                        } else if (p.stage1_classification === 'LOW_USAGE') {
+                            gateBadge = `<span class="status-badge" style="background:rgba(245,158,11,0.22); color:#f59e0b; border:1px solid rgba(245,158,11,0.5); font-weight:700;">⚠ LOW USAGE (EVAL)</span>`;
+                        } else {
+                            gateBadge = `<span class="status-badge" style="background:rgba(100,116,139,0.18); color:#94a3b8; border:1px solid rgba(100,116,139,0.35);">ACTIVE WORKLOAD</span>`;
+                        }
+
+                        // Metrics
+                        const cpuUtil = (p.cpu_util_pct || 0).toFixed(1);
+                        const cpuMilli = (p.cpu_millicores || 0).toFixed(1);
+                        const memMB = (p.memory_working_set_mb || 0).toFixed(1);
+                        const memUtil = (p.memory_util_pct || 0).toFixed(1);
+                        const qpsVal = (p.qps || 0).toFixed(2);
+                        const idleDur = Math.round(p.idle_duration_sec || 0);
+                        const minIdle = Math.round(p.min_idle_duration_sec || 30);
+                        const durSat = p.duration_satisfied;
+                        const samplesSat = p.samples_satisfied && p.is_consistently_idle;
+
+                        // Stage 2 Score Bar
+                        const score = p.composite_score || 0;
+                        const scorePct = Math.min(100, Math.max(0, score * 100));
+                        let barColor = 'rgba(100, 116, 139, 0.6)';
+                        if (score >= (p.full_threshold || 0.5927)) {
+                            barColor = 'linear-gradient(90deg, #6366f1, #c084fc)';
+                        } else if (score >= (p.soft_threshold || 0.3361)) {
+                            barColor = 'linear-gradient(90deg, #06b6d4, #10b981)';
+                        }
+
+                        // Action Badge
+                        let actBadge = '';
+                        if (p.decision_action === 'FULL_RECLAIM') {
+                            actBadge = `<span class="status-badge badge-checkpointed">⚡ FULL_RECLAIM</span>`;
+                        } else if (p.decision_action === 'SOFT_RECLAIM') {
+                            actBadge = `<span class="status-badge badge-checkpointing">⚙ SOFT_RECLAIM</span>`;
+                        } else if (p.in_cooldown) {
+                            actBadge = `<span class="status-badge badge-candidate">⏳ COOLDOWN (${Math.round(p.cooldown_remaining_sec)}s)</span>`;
+                        } else {
+                            actBadge = `<span class="status-badge badge-running">KEEP</span>`;
+                        }
+
+                        // Reasons
+                        let reasonText = '--';
+                        if (p.rejection_reasons && p.rejection_reasons.length > 0) {
+                            reasonText = p.rejection_reasons[0];
+                        } else if (p.decision_reasons && p.decision_reasons.length > 0) {
+                            reasonText = p.decision_reasons[0];
+                        }
+
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                <td style="padding: 12px 14px;">
+                                    <div style="font-weight: 700; color: #f8fafc; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;">${p.pod_name}</div>
+                                    <div class="pod-subdetail">${p.workload_kind || 'Pod'} · ${p.namespace} · ${p.node_name || 'node'}</div>
+                                </td>
+                                <td style="padding: 12px 14px;">
+                                    ${gateBadge}
+                                    <div style="margin-top: 5px; font-size: 0.72rem; color: #94a3b8;">
+                                        Class: <strong style="color:#e2e8f0;">${p.stage1_classification || 'ACTIVE'}</strong>
+                                    </div>
+                                </td>
+                                <td style="padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;">
+                                    <div>CPU: <span style="color:${cpuUtil < 30 ? '#10b981' : '#f59e0b'}">${cpuMilli}m (${cpuUtil}%)</span></div>
+                                    <div>RAM: <span style="color:#06b6d4">${memMB} MB (${memUtil}%)</span></div>
+                                    <div>QPS: <span style="color:#94a3b8">${qpsVal} req/s</span></div>
+                                </td>
+                                <td style="padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;">
+                                    <div>Idle: <strong style="color:${durSat ? '#10b981' : '#f59e0b'}">${idleDur}s</strong> / ${minIdle}s ${durSat ? '✓' : '✗'}</div>
+                                    <div style="color:${samplesSat ? '#10b981' : '#64748b'}; margin-top: 3px;">
+                                        Window: ${p.sample_count}/${p.min_samples} samples ${samplesSat ? '(Stable)' : '(Sampling)'}
+                                    </div>
+                                </td>
+                                <td style="padding: 12px 14px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: baseline; font-family: 'JetBrains Mono', monospace;">
+                                        <span style="font-weight: 700; font-size: 0.95rem; color:${score >= 0.5927 ? '#c084fc' : (score >= 0.3361 ? '#06b6d4' : '#94a3b8')}">
+                                            ${score.toFixed(4)}
+                                        </span>
+                                        <span style="font-size: 0.68rem; color: #64748b;">
+                                            Soft: ${(p.soft_threshold||0.3361).toFixed(2)} | Full: ${(p.full_threshold||0.5927).toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div class="score-bar-container" title="Score: ${score.toFixed(4)} (Soft: ${p.soft_threshold}, Full: ${p.full_threshold})">
+                                        <div class="thresh-marker soft" title="Soft Reclaim Threshold: 0.3361"></div>
+                                        <div class="thresh-marker full" title="Full Reclaim Threshold: 0.5927"></div>
+                                        <div class="score-bar-fill" style="width: ${scorePct}%; background: ${barColor};"></div>
+                                    </div>
+                                    <div style="margin-top: 6px; font-size: 0.68rem; color: #64748b;">
+                                        <span class="metric-chip">CPU:${(p.score_cpu||0).toFixed(2)}</span>
+                                        <span class="metric-chip">RAM:${(p.score_mem||0).toFixed(2)}</span>
+                                        <span class="metric-chip">Pri:${(p.score_priority||0).toFixed(2)}</span>
+                                    </div>
+                                </td>
+                                <td style="padding: 12px 14px;">
+                                    <div>${actBadge}</div>
+                                    <div class="pod-subdetail" style="max-width: 260px; line-height: 1.35; margin-top: 5px;" title="${reasonText}">
+                                        ${reasonText}
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                })
+                .catch(err => {
+                    isFetchingEvaluations = false;
+                });
+        }
+
+        function onCycleSelectChange() {
+            fetchEvaluations();
+        }
+
         loadLiveHistory();
         connectSSE();
         populateRunSelector();
         fetchWorkloads();
+        fetchEvaluations();
         fetchLogs();
         fetchRequests();
         fetchCheckpoints();
         setInterval(populateRunSelector, 10000);
         setInterval(updateAggregates, 5000);
         setInterval(fetchWorkloads, 3000);
+        setInterval(fetchEvaluations, 2000);
         setInterval(fetchLogs, 2000);
         setInterval(fetchRequests, 1500);
         setInterval(fetchCheckpoints, 4000);

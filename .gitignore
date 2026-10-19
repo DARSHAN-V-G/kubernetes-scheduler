@@ -40,3 +40,6 @@ __pycache__/
 # Datasets
 dataset/*.csv
 dataset/*.tar.gz
+
+# Benchmark Telemetry Reports
+benchmark-workloads/telemetry/reports/
