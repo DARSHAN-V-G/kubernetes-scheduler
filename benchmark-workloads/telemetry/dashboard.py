@@ -945,6 +945,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Ensure SQLite database and all schema tables exist on any clean clone
+    init_database(DB_PATH)
+
     # Start background collector thread
     collector_th = threading.Thread(target=background_collector_thread, daemon=True)
     collector_th.start()

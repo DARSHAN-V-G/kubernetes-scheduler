@@ -262,6 +262,7 @@ def record_checkpoint_event(run_id: int, pod_name: str, namespace: str, action: 
         print(f"[WARN] Failed to record checkpoint event: {e}")
 
 def get_or_create_active_run_id(db_path=DB_PATH, mode="timewarp", timewarp_factor=48, duration="30m") -> int:
+    init_database(db_path)
     env_run_id = os.environ.get("BENCHMARK_RUN_ID")
     if env_run_id:
         try:
@@ -269,7 +270,6 @@ def get_or_create_active_run_id(db_path=DB_PATH, mode="timewarp", timewarp_facto
         except ValueError:
             pass
 
-    init_database(db_path)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("SELECT run_id FROM benchmark_runs WHERE status = 'RUNNING' ORDER BY run_id DESC LIMIT 1;")
