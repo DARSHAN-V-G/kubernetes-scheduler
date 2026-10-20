@@ -16,6 +16,8 @@ spec:
         app: adaptive-scheduler
     spec:
       serviceAccountName: adaptive-scheduler-sa
+      nodeSelector:
+        benchmark.role: adaptive
       volumes:
         - name: prometheus-config
           configMap:
@@ -66,6 +68,10 @@ spec:
           command:
             - /bin/adaptive-scheduler
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: CHECKPOINT_DIR
               value: /var/lib/kubelet/checkpoints
             - name: IDLE_QPS_THRESHOLD
@@ -73,7 +79,7 @@ spec:
             - name: IDLE_MIN_DURATION_SECONDS
               value: "20"
             - name: FULL_RECLAIM_THRESHOLD
-              value: "0.45"
+              value: "0.40"
             - name: SOFT_RECLAIM_THRESHOLD
               value: "0.30"
           args:

@@ -184,17 +184,15 @@ cleanup() {
     fi
     CLEANUP_EXECUTED=true
 
-    log_header "CLEANUP, FINAL REPORT & FULL TESTBED TEARDOWN"
-    log_info "Terminating background processes (port-forwards & dashboard)..."
+    log_header "CLEANUP, FINAL REPORT & WORKLOAD TEARDOWN"
+    log_info "Terminating testbed port-forwards and traffic simulator..."
     for pid in "${BG_PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null || true
         fi
     done
 
-    # Ensure all telemetry & simulator daemons are halted
-    pkill -f "dashboard.py" 2>/dev/null || true
-    pkill -f "collector.py" 2>/dev/null || true
+    # Terminate traffic simulator load generators & port-forwards (Dashboard server remains RUNNING)
     pkill -f "traffic-simulator" 2>/dev/null || true
     pkill -f "kubectl.*port-forward" 2>/dev/null || true
 
@@ -234,15 +232,23 @@ except Exception:
     kubectl scale statefulset --all -n test-application-default --replicas=0 2>/dev/null || true
     kubectl scale statefulset --all -n test-application-adaptive --replicas=0 2>/dev/null || true
 
-    # Free benchmark network ports
-    for port in 8080 8081 8082 8090 9090; do
+    # Stop adaptive-scheduler deployment (as requested)
+    log_step "Stopping adaptive-scheduler controller (scaling to 0 replicas)..."
+    kubectl scale deployment/adaptive-scheduler -n adaptive-scheduler --replicas=0 2>/dev/null || true
+
+    # Free benchmark workload network ports (Port 8090 remains OPEN for dashboard!)
+    for port in 8080 8081 8082 8085 9090; do
         if command -v fuser &>/dev/null; then
             fuser -k "${port}/tcp" >/dev/null 2>&1 || true
         fi
     done
 
     rm -rf "$lock_dir" 2>/dev/null || true
-    log_success "All test workload containers stopped and background processes terminated. Cluster preserved."
+    log_success "All test workload containers, traffic simulator, and scheduler stopped."
+    echo -e "\n${BOLD}${GREEN}====================================================================${NC}"
+    echo -e " ${BOLD}${GREEN}✔ Dashboard Server Kept Running on http://localhost:8090${NC}"
+    echo -e " ${CYAN}Historical runs, comparative charts, and CRIU logs remain accessible.${NC}"
+    echo -e "${BOLD}${GREEN}====================================================================${NC}\n"
 
     if [ "$sig" = "INT" ] || [ "$sig" = "TERM" ]; then
         exit 0
@@ -394,6 +400,7 @@ kubectl wait --for=condition=Established --timeout=30s crd/reclaimpolicies.recla
 kubectl apply -f "$SCRIPT_DIR/adaptive-k8s-scheduler/deployments/rbac.yaml" >/dev/null
 kubectl apply -f "$SCRIPT_DIR/adaptive-k8s-scheduler/deployments/prometheus-configmap.yaml" >/dev/null
 kubectl apply -f "$SCRIPT_DIR/adaptive-k8s-scheduler/deployments/scheduler-deployment.yaml" >/dev/null
+kubectl scale deployment/adaptive-scheduler -n adaptive-scheduler --replicas=1 >/dev/null 2>&1 || true
 
 log_info "Waiting for adaptive-scheduler deployment readiness..."
 kubectl rollout status deployment/adaptive-scheduler -n adaptive-scheduler --timeout=120s
@@ -427,9 +434,11 @@ fi
 
 log_step "Deploying Default Scheduler workload ('test-application-default')..."
 kubectl apply -f "$SCRIPT_DIR/benchmark-workloads/k8s/default" >/dev/null
+kubectl scale deployment --all -n test-application-default --replicas=1 >/dev/null 2>&1 || true
 
 log_step "Deploying Adaptive Scheduler workload ('test-application-adaptive')..."
 kubectl apply -f "$SCRIPT_DIR/benchmark-workloads/k8s/adaptive" >/dev/null
+kubectl scale deployment --all -n test-application-adaptive --replicas=1 >/dev/null 2>&1 || true
 
 log_info "Waiting for workload rollouts in both namespaces..."
 kubectl rollout status deployment/datastore -n test-application-default --timeout=60s >/dev/null
@@ -446,7 +455,7 @@ log_success "All pods deployed and ready in both namespaces."
 # ------------------------------------------------------------------------------
 log_header "STEP 5: Configuring Telemetry & Gateway Port-Forwards"
 
-# Kill existing dangling port-forwards
+# Kill existing dangling port-forwards (Port 8090 dashboard remains untouched!)
 kill_port() {
     local port=$1
     if command -v fuser &>/dev/null; then
@@ -457,13 +466,11 @@ kill_port() {
         if [ -n "$pid" ]; then kill -9 $pid 2>/dev/null || true; fi
     fi
 }
-pkill -f "dashboard.py" 2>/dev/null || true
 kill_port 9090
 kill_port 8085
 kill_port 8080
 kill_port 8081
 kill_port 8082
-kill_port 8090
 
 log_info "Starting port-forward: Prometheus (:9090)..."
 kubectl port-forward -n adaptive-scheduler svc/adaptive-scheduler 9090:9090 >/dev/null 2>&1 &
@@ -493,15 +500,17 @@ log_success "Port-forwards established."
 # ------------------------------------------------------------------------------
 log_header "STEP 6: Launching Real-Time Telemetry Visualizer"
 
-log_info "Starting dashboard server on http://localhost:8090 in background..."
-(trap - EXIT INT TERM; cd "$SCRIPT_DIR/benchmark-workloads/telemetry" && exec "$PYTHON_CMD" dashboard.py > /tmp/dashboard_server.log 2>&1) &
-BG_PIDS+=($!)
-
-sleep 2
-if curl -s "http://localhost:8090" &>/dev/null; then
-    log_success "Real-Time Visualizer active at: ${BOLD}${GREEN}http://localhost:8090${NC}"
+if curl -s "http://localhost:8090/api/runs" &>/dev/null; then
+    log_success "Real-Time Telemetry Visualizer is already active at: ${BOLD}${GREEN}http://localhost:8090${NC}"
 else
-    log_warn "Dashboard server initializing, check http://localhost:8090 shortly."
+    log_info "Starting standalone telemetry visualizer on http://localhost:8090 (persists after benchmark completes)..."
+    (cd "$SCRIPT_DIR/benchmark-workloads/telemetry" && nohup "$PYTHON_CMD" dashboard.py > /tmp/dashboard_server.log 2>&1 &)
+    sleep 2
+    if curl -s "http://localhost:8090" &>/dev/null; then
+        log_success "Real-Time Visualizer active at: ${BOLD}${GREEN}http://localhost:8090${NC}"
+    else
+        log_warn "Dashboard server initializing, check http://localhost:8090 shortly."
+    fi
 fi
 
 # ------------------------------------------------------------------------------

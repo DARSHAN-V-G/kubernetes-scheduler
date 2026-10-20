@@ -250,14 +250,24 @@ func main() {
 					}
 
 					podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+					serviceName := pod.Labels["app"]
+					if serviceName == "" {
+						serviceName = pod.Name
+					}
+					svcKey := fmt.Sprintf("%s/%s", pod.Namespace, serviceName)
+
 					reclaimCooldownMu.Lock()
 					lastReclaimed, recentlyReclaimed := reclaimCooldown[podKey]
+					if !recentlyReclaimed {
+						lastReclaimed, recentlyReclaimed = reclaimCooldown[svcKey]
+					}
 					inCooldown := recentlyReclaimed && time.Since(lastReclaimed) < 2*time.Minute
 					if inCooldown {
 						reclaimCooldownMu.Unlock()
 					} else {
 						if recentlyReclaimed {
 							delete(reclaimCooldown, podKey)
+							delete(reclaimCooldown, svcKey)
 						}
 						reclaimCooldownMu.Unlock()
 					}
@@ -501,22 +511,33 @@ func runWithLeaderElection(ctx context.Context, clientset kubernetes.Interface, 
 }
 
 func buildKubeConfig(kubeconfigPath string) (*rest.Config, error) {
+	var cfg *rest.Config
+	var err error
 	if kubeconfigPath != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	} else if inClusterConfig, inClusterErr := rest.InClusterConfig(); inClusterErr == nil {
+		cfg = inClusterConfig
+	} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		defaultPath := fmt.Sprintf("%s/.kube/config", home)
+		if _, statErr := os.Stat(defaultPath); statErr == nil {
+			cfg, err = clientcmd.BuildConfigFromFlags("", defaultPath)
+		}
 	}
-	inClusterConfig, err := rest.InClusterConfig()
-	if err == nil {
-		return inClusterConfig, nil
+	if cfg == nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("could not locate valid kubeconfig")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed locating user home dir: %w", err)
+
+	// Prevent client-side throttling during high-frequency evaluation and reconciliation loops (default is 5 QPS / 10 Burst)
+	if cfg.QPS < 50.0 {
+		cfg.QPS = 50.0
 	}
-	defaultPath := fmt.Sprintf("%s/.kube/config", home)
-	if _, err := os.Stat(defaultPath); err == nil {
-		return clientcmd.BuildConfigFromFlags("", defaultPath)
+	if cfg.Burst < 100 {
+		cfg.Burst = 100
 	}
-	return nil, fmt.Errorf("could not locate valid kubeconfig: %w", err)
+	return cfg, nil
 }
 
 type checkpointRecordReader interface {

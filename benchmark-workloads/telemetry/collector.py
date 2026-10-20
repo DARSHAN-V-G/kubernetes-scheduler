@@ -89,6 +89,8 @@ def init_database(db_path=DB_PATH, reset=False):
             pod_name TEXT NOT NULL,
             namespace TEXT NOT NULL,
             action TEXT NOT NULL,
+            status TEXT DEFAULT 'SUCCESS',
+            status_message TEXT DEFAULT '',
             score REAL DEFAULT 0.0,
             memory_freed_mb REAL DEFAULT 0.0,
             checkpoint_size_mb REAL DEFAULT 0.0,
@@ -96,6 +98,14 @@ def init_database(db_path=DB_PATH, reset=False):
             FOREIGN KEY(run_id) REFERENCES benchmark_runs(run_id)
         );
     """)
+    try:
+        cur.execute("ALTER TABLE checkpoint_events ADD COLUMN status TEXT DEFAULT 'SUCCESS';")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE checkpoint_events ADD COLUMN status_message TEXT DEFAULT '';")
+    except Exception:
+        pass
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS scheduler_evaluation_cycles (
@@ -244,6 +254,7 @@ def record_evaluation_cycle(run_id: int, cycle_number: int, elapsed_seconds: flo
 def record_checkpoint_event(run_id: int, pod_name: str, namespace: str, action: str,
                             score: float = 0.0, memory_freed_mb: float = 0.0,
                             checkpoint_size_mb: float = 0.0, checkpoint_path: str = "",
+                            status: str = "SUCCESS", status_message: str = "",
                             db_path=DB_PATH):
     try:
         conn = sqlite3.connect(db_path, timeout=15.0)
@@ -253,9 +264,10 @@ def record_checkpoint_event(run_id: int, pod_name: str, namespace: str, action: 
         cur.execute("""
             INSERT INTO checkpoint_events (
                 run_id, timestamp, pod_name, namespace, action,
+                status, status_message,
                 score, memory_freed_mb, checkpoint_size_mb, checkpoint_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (run_id, ts, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (run_id, ts, pod_name, namespace, action, status, status_message, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path))
         conn.commit()
         conn.close()
     except Exception as e:

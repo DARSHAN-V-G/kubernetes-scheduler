@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS checkpoint_events (
     pod_name TEXT NOT NULL,
     namespace TEXT NOT NULL,
     action TEXT NOT NULL,
+    status TEXT DEFAULT 'SUCCESS',
+    status_message TEXT DEFAULT '',
     score REAL DEFAULT 0.0,
     memory_freed_mb REAL DEFAULT 0.0,
     checkpoint_size_mb REAL DEFAULT 0.0,

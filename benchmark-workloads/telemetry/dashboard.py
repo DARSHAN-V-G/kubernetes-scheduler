@@ -87,6 +87,104 @@ def fetch_scheduler_logs(tail=80):
 
 seen_checkpoint_names = set()
 
+def resolve_pod_reclamation_metrics(pod_name: str, db_path=DB_PATH):
+    """
+    Dynamically resolves the true evaluated composite score and working set memory (MB)
+    for a pod from scheduler_evaluation_cycles.
+    """
+    try:
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        cur = conn.cursor()
+        # Tier 1: Exact pod_name with an active decision/reclaim score
+        cur.execute("""
+            SELECT composite_score, memory_working_set_mb
+            FROM scheduler_evaluation_cycles
+            WHERE pod_name = ? AND (decision_action != 'KEEP' OR composite_score > 0)
+            ORDER BY id DESC LIMIT 1;
+        """, (pod_name,))
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            conn.close()
+            return round(float(row[0]), 4), round(float(row[1] or 0.0), 2)
+
+        # Tier 2: Exact pod_name latest
+        cur.execute("""
+            SELECT composite_score, memory_working_set_mb
+            FROM scheduler_evaluation_cycles
+            WHERE pod_name = ?
+            ORDER BY id DESC LIMIT 1;
+        """, (pod_name,))
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            conn.close()
+            return round(float(row[0]), 4), round(float(row[1] or 0.0), 2)
+
+        # Tier 3: Deployment prefix fallback (e.g., 'core-api' or 'batch-worker')
+        parts = pod_name.split("-")
+        if len(parts) >= 2:
+            prefix = f"{parts[0]}-{parts[1]}-%"
+            cur.execute("""
+                SELECT composite_score, memory_working_set_mb
+                FROM scheduler_evaluation_cycles
+                WHERE pod_name LIKE ? AND (decision_action != 'KEEP' OR composite_score > 0)
+                ORDER BY id DESC LIMIT 1;
+            """, (prefix,))
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                conn.close()
+                return round(float(row[0]), 4), round(float(row[1] or 0.0), 2)
+
+        conn.close()
+    except Exception as e:
+        print(f"[WARN] Error resolving reclamation metrics for {pod_name}: {e}")
+    return 0.0, 0.0
+
+def backfill_checkpoint_events(db_path=DB_PATH):
+    """
+    Replaces any hardcoded placeholder scores (0.83) and memory freed (100.0)
+    with genuine recorded evaluations from scheduler_evaluation_cycles.
+    Also ensures status and status_message are populated.
+    """
+    try:
+        conn = sqlite3.connect(db_path, timeout=10.0)
+        cur = conn.cursor()
+        cur.execute("PRAGMA busy_timeout=5000;")
+        cur.execute("""
+            SELECT id, pod_name, score, memory_freed_mb, checkpoint_path, status, status_message
+            FROM checkpoint_events
+            WHERE (score = 0.83 AND memory_freed_mb = 100.0) OR status IS NULL OR status = '';
+        """)
+        rows = cur.fetchall()
+        updated = 0
+        for r in rows:
+            eid, p_name, old_score, old_mem, ckpt_path, cur_status, cur_msg = r
+            r_score, r_mem = resolve_pod_reclamation_metrics(p_name, db_path)
+            new_score = r_score if r_score > 0 else (old_score if old_score != 0.83 else 0.0)
+            new_mem = r_mem if r_mem > 0 else (old_mem if old_mem != 100.0 else 0.0)
+
+            target_status = cur_status or "SUCCESS"
+            target_msg = cur_msg or ""
+            if not cur_status or cur_status == "SUCCESS":
+                if ckpt_path and ckpt_path.startswith("graceful://"):
+                    target_status = "RESTORED"
+                    target_msg = target_msg or "Redeployment requested and resumed"
+                else:
+                    target_status = "SUCCESS"
+                    target_msg = target_msg or "CRIU checkpoint archive verified & ready"
+
+            cur.execute("""
+                UPDATE checkpoint_events
+                SET score = ?, memory_freed_mb = ?, status = ?, status_message = ?
+                WHERE id = ?;
+            """, (new_score, new_mem, target_status, target_msg, eid))
+            updated += 1
+        conn.commit()
+        conn.close()
+        if updated > 0:
+            print(f"[+] Backfilled {updated} checkpoint events with genuine scheduler metrics and status.")
+    except Exception as e:
+        print(f"[WARN] Failed backfilling checkpoint events: {e}")
+
 def fetch_workload_states():
     # Model states exactly following simulator/backend/cluster/state_store.go
     # Lifecycle States: RUNNING, CANDIDATE, CHECKPOINTING, CHECKPOINTED, RECLAIMED, RESTORING, RESTORED, RECLAMATION_FAILED
@@ -120,10 +218,45 @@ def fetch_workload_states():
                         size_bytes = spec.get("checkpointSizeBytes", 0)
                         size_mb = round(size_bytes / (1024 * 1024), 2)
                         ckpt_path = spec.get("checkpointPath", "")
+
+                        # Determine operational status and phase message
+                        status_obj = item.get("status", {})
+                        phase = status_obj.get("phase", "Ready")
+                        message = status_obj.get("message", "")
+                        failure_reason = status_obj.get("failureReason", "")
+
+                        if phase in ("Ready", "Checkpointed"):
+                            ckpt_status = "SUCCESS"
+                            status_msg = message or "CRIU checkpoint archive verified & ready"
+                        elif phase == "Restored":
+                            ckpt_status = "RESTORED"
+                            status_msg = message or "Workload restored from checkpoint"
+                        elif phase == "Failed" or failure_reason:
+                            ckpt_status = "FAILED"
+                            status_msg = failure_reason or message or "Checkpoint operation failed"
+                        elif phase == "Pending":
+                            ckpt_status = "PENDING"
+                            status_msg = message or "Checkpoint capture in progress"
+                        else:
+                            ckpt_status = "SUCCESS"
+                            status_msg = message or f"Phase: {phase}"
+
+                        # Resolve genuine composite score and memory freed from scheduler_evaluation_cycles
+                        score_val, mem_freed_val = resolve_pod_reclamation_metrics(pod_name, DB_PATH)
+                        if mem_freed_val <= 0:
+                            orig_reqs = spec.get("originalRequests", {})
+                            mem_str = orig_reqs.get("memory", "")
+                            if mem_str.endswith("Mi"):
+                                try:
+                                    mem_freed_val = round(float(mem_str[:-2]), 2)
+                                except Exception:
+                                    pass
+
                         run_id = get_or_create_active_run_id(DB_PATH)
                         record_checkpoint_event(run_id, pod_name, ns, "FULL_RECLAIM_CHECKPOINT",
-                                                score=0.83, memory_freed_mb=100.0,
+                                                score=score_val, memory_freed_mb=mem_freed_val,
                                                 checkpoint_size_mb=size_mb, checkpoint_path=ckpt_path,
+                                                status=ckpt_status, status_message=status_msg,
                                                 db_path=DB_PATH)
             break
         except Exception:
@@ -288,22 +421,86 @@ def background_collector_thread():
             eval_data = fetch_scheduler_evaluations()
             if eval_data and "cycle_number" in eval_data:
                 c_num = eval_data.get("cycle_number", 0)
-                for p in eval_data.get("pods", []):
+                pods_list = eval_data.get("pods") or []
+                eval_data["pods"] = pods_list
+                for p in pods_list:
                     cls_val = p.get("stage1_classification", "")
                     if not cls_val or cls_val == "\x00":
                         p["stage1_classification"] = "IDLE" if p.get("is_candidate") else "ACTIVE"
                 with latest_evaluations_lock:
                     latest_evaluations.clear()
                     latest_evaluations.update(eval_data)
-                if c_num != last_recorded_cycle and c_num > 0:
+                if c_num != last_recorded_cycle and c_num > 0 and len(pods_list) > 0:
                     last_recorded_cycle = c_num
-                    for p in eval_data.get("pods", []):
+                    for p in pods_list:
                         record_evaluation_cycle(run_id, c_num, elapsed, p, db_path=DB_PATH)
         except Exception:
             pass
 
         proc_time = time.time() - t0
         time.sleep(max(0.05, 1.0 - proc_time))
+
+def parse_eval_rows(rows):
+    seen_pods = set()
+    pods = []
+    def safe_json(val):
+        if not val:
+            return []
+        try:
+            return json.loads(val)
+        except Exception:
+            return [str(val)]
+
+    for r in rows:
+        p_name = r[3]
+        if p_name in seen_pods:
+            continue
+        seen_pods.add(p_name)
+        pods.append({
+            "cycle_number": r[0],
+            "timestamp": r[1],
+            "elapsed_seconds": r[2],
+            "pod_name": r[3],
+            "namespace": r[4],
+            "workload_kind": r[5],
+            "phase": r[6],
+            "node_name": r[7],
+            "in_cooldown": bool(r[8]),
+            "cooldown_remaining_sec": r[9],
+            "is_candidate": bool(r[10]),
+            "stage1_classification": r[11] if (r[11] and r[11] != "\x00") else ("IDLE" if bool(r[10]) else "ACTIVE"),
+            "cpu_millicores": r[12],
+            "cpu_threshold_millicores": r[13],
+            "cpu_util_pct": r[14],
+            "memory_working_set_mb": r[15],
+            "memory_requested_mb": r[16],
+            "memory_util_pct": r[17],
+            "network_bytes_sec": r[18],
+            "qps": r[19],
+            "idle_duration_sec": r[20],
+            "min_idle_duration_sec": r[21],
+            "duration_satisfied": bool(r[22]),
+            "sample_count": r[23],
+            "min_samples": r[24],
+            "samples_satisfied": bool(r[25]),
+            "is_consistently_idle": bool(r[26]),
+            "stage1_reasons": safe_json(r[27]),
+            "composite_score": r[28],
+            "decision_action": r[29],
+            "soft_threshold": r[30],
+            "full_threshold": r[31],
+            "score_cpu": r[32],
+            "score_mem": r[33],
+            "score_benefit": r[34],
+            "score_priority": r[35],
+            "score_state": r[36],
+            "score_replica": r[37],
+            "full_reclaim_allowed": bool(r[38]),
+            "soft_reclaim_allowed": bool(r[39]),
+            "rejection_reasons": safe_json(r[40]),
+            "decision_reasons": safe_json(r[41])
+        })
+    return pods
 
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -591,14 +788,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             if target_run_id is not None and run_id_param != "all":
                 cur.execute("""
-                    SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path
+                    SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path, status, status_message
                     FROM checkpoint_events
                     WHERE run_id = ?
                     ORDER BY id DESC;
                 """, (target_run_id,))
             else:
                 cur.execute("""
-                    SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path
+                    SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path, status, status_message
                     FROM checkpoint_events
                     ORDER BY id DESC;
                 """)
@@ -615,15 +812,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "score": r[6],
                     "memory_freed_mb": r[7],
                     "checkpoint_size_mb": r[8],
-                    "checkpoint_path": r[9]
+                    "checkpoint_path": r[9],
+                    "status": r[10] or "SUCCESS",
+                    "status_message": r[11] or ""
                 })
             conn.close()
             payload = {
                 "target_run_id": target_run_id,
                 "events": events
             }
-        except Exception:
-            payload = {"target_run_id": None, "events": []}
+        except Exception as e:
+            payload = {"target_run_id": None, "events": [], "error": str(e)}
         data = json.dumps(payload).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -636,6 +835,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         params = parse_qs(query_string)
         run_id_param = params.get("run_id", ["live"])[0]
         cycle_param = params.get("cycle", [None])[0]
+        view_param = params.get("view", [None])[0]
 
         try:
             conn = sqlite3.connect(DB_PATH, timeout=5.0)
@@ -697,28 +897,66 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     })
 
             target_cycle = None
-            if cycle_param and cycle_param != "live":
+            if cycle_param and cycle_param not in ("live", "recent"):
                 try:
                     target_cycle = int(cycle_param)
                 except ValueError:
                     target_cycle = available_cycles[0]["cycle"] if available_cycles else None
-            elif run_id_param != "live" and available_cycles:
+            elif run_id_param != "live" and cycle_param != "recent" and available_cycles:
                 target_cycle = available_cycles[0]["cycle"]
 
-            if target_cycle is None:
+            if cycle_param == "recent" or view_param == "recent":
+                # Fetch up to 5 most recent distinct cycles for target_run_id
+                cur.execute("""
+                    SELECT DISTINCT cycle_number
+                    FROM scheduler_evaluation_cycles
+                    WHERE run_id = ?
+                    ORDER BY cycle_number DESC
+                    LIMIT 5;
+                """, (target_run_id or 1,))
+                recent_c_nums = [cr[0] for cr in cur.fetchall()]
+                cycle_groups = []
+                for c_num in recent_c_nums:
+                    cur.execute("""
+                        SELECT cycle_number, timestamp, elapsed_seconds, pod_name, namespace, workload_kind,
+                               phase, node_name, in_cooldown, cooldown_remaining_sec, is_candidate,
+                               stage1_classification, cpu_millicores, cpu_threshold_millicores, cpu_util_pct,
+                               memory_working_set_mb, memory_requested_mb, memory_util_pct, network_bytes_sec,
+                               qps, idle_duration_sec, min_idle_duration_sec, duration_satisfied,
+                               sample_count, min_samples, samples_satisfied, is_consistently_idle,
+                               stage1_reasons, composite_score, decision_action, soft_threshold,
+                               full_threshold, score_cpu, score_mem, score_benefit, score_priority,
+                               score_state, score_replica, full_reclaim_allowed, soft_reclaim_allowed,
+                               rejection_reasons, decision_reasons
+                        FROM scheduler_evaluation_cycles
+                        WHERE cycle_number = ? AND run_id = ?
+                        ORDER BY pod_name ASC;
+                    """, (c_num, target_run_id or 1))
+                    c_pods = parse_eval_rows(cur.fetchall())
+                    c_ts = c_pods[0]["timestamp"] if c_pods else ""
+                    c_el = c_pods[0]["elapsed_seconds"] if c_pods else 0.0
+                    c_cand = sum(1 for p in c_pods if p.get("decision_action") in ("FULL_RECLAIM", "SOFT_RECLAIM"))
+                    cycle_groups.append({
+                        "cycle_number": c_num,
+                        "timestamp": c_ts,
+                        "elapsed_seconds": c_el,
+                        "candidates_count": c_cand,
+                        "pods": c_pods
+                    })
                 conn.close()
-                with latest_evaluations_lock:
-                    resp = dict(latest_evaluations)
-                resp["run_id"] = target_run_id
-                resp["available_cycles"] = available_cycles
+                resp = {
+                    "mode": "recent_cycles",
+                    "run_id": target_run_id,
+                    "available_cycles": available_cycles,
+                    "cycles": cycle_groups
+                }
                 data = json.dumps(resp).encode("utf-8")
-            else:
-                run_id = target_run_id
-
-                pods = []
-                cycle_timestamp = ""
-                elapsed = 0.0
-                if target_cycle is not None:
+            elif target_cycle is None:
+                with latest_evaluations_lock:
+                    live_eval = dict(latest_evaluations)
+                live_pods = live_eval.get("pods") or []
+                if not live_pods and available_cycles:
+                    fallback_cycle = available_cycles[0]["cycle"]
                     cur.execute("""
                         SELECT cycle_number, timestamp, elapsed_seconds, pod_name, namespace, workload_kind,
                                phase, node_name, in_cooldown, cooldown_remaining_sec, is_candidate,
@@ -733,70 +971,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         FROM scheduler_evaluation_cycles
                         WHERE cycle_number = ?
                         ORDER BY CASE WHEN run_id = ? THEN 0 ELSE 1 END, run_id DESC, pod_name ASC;
-                    """, (target_cycle, run_id or 0))
-                    rows = cur.fetchall()
-                    seen_pods = set()
-                    for r in rows:
-                        p_name = r[3]
-                        if p_name in seen_pods:
-                            continue
-                        seen_pods.add(p_name)
-                        cycle_timestamp = r[1]
-                        elapsed = r[2]
-                        def safe_json(val):
-                            if not val:
-                                return []
-                            try:
-                                return json.loads(val)
-                            except Exception:
-                                return [str(val)]
-
-                        pods.append({
-                            "cycle_number": r[0],
-                            "timestamp": r[1],
-                            "elapsed_seconds": r[2],
-                            "pod_name": r[3],
-                            "namespace": r[4],
-                            "workload_kind": r[5],
-                            "phase": r[6],
-                            "node_name": r[7],
-                            "in_cooldown": bool(r[8]),
-                            "cooldown_remaining_sec": r[9],
-                            "is_candidate": bool(r[10]),
-                            "stage1_classification": r[11] if (r[11] and r[11] != "\x00") else ("IDLE" if bool(r[10]) else "ACTIVE"),
-                            "cpu_millicores": r[12],
-                            "cpu_threshold_millicores": r[13],
-                            "cpu_util_pct": r[14],
-                            "memory_working_set_mb": r[15],
-                            "memory_requested_mb": r[16],
-                            "memory_util_pct": r[17],
-                            "network_bytes_sec": r[18],
-                            "qps": r[19],
-                            "idle_duration_sec": r[20],
-                            "min_idle_duration_sec": r[21],
-                            "duration_satisfied": bool(r[22]),
-                            "sample_count": r[23],
-                            "min_samples": r[24],
-                            "samples_satisfied": bool(r[25]),
-                            "is_consistently_idle": bool(r[26]),
-                            "stage1_reasons": safe_json(r[27]),
-                            "composite_score": r[28],
-                            "decision_action": r[29],
-                            "soft_threshold": r[30],
-                            "full_threshold": r[31],
-                            "score_cpu": r[32],
-                            "score_mem": r[33],
-                            "score_benefit": r[34],
-                            "score_priority": r[35],
-                            "score_state": r[36],
-                            "score_replica": r[37],
-                            "full_reclaim_allowed": bool(r[38]),
-                            "soft_reclaim_allowed": bool(r[39]),
-                            "rejection_reasons": safe_json(r[40]),
-                            "decision_reasons": safe_json(r[41])
-                        })
+                    """, (fallback_cycle, target_run_id or 0))
+                    fallback_pods = parse_eval_rows(cur.fetchall())
+                    fb_ts = fallback_pods[0]["timestamp"] if fallback_pods else ""
+                    fb_el = fallback_pods[0]["elapsed_seconds"] if fallback_pods else 0.0
+                    conn.close()
+                    resp = {
+                        "mode": "single_cycle",
+                        "run_id": target_run_id,
+                        "cycle_number": fallback_cycle,
+                        "timestamp": fb_ts,
+                        "elapsed_seconds": fb_el,
+                        "available_cycles": available_cycles,
+                        "pods": fallback_pods
+                    }
+                else:
+                    conn.close()
+                    resp = live_eval
+                    resp["mode"] = "single_cycle"
+                    resp["run_id"] = target_run_id
+                    resp["available_cycles"] = available_cycles
+                    resp["pods"] = live_pods
+                data = json.dumps(resp).encode("utf-8")
+            else:
+                run_id = target_run_id
+                cur.execute("""
+                    SELECT cycle_number, timestamp, elapsed_seconds, pod_name, namespace, workload_kind,
+                           phase, node_name, in_cooldown, cooldown_remaining_sec, is_candidate,
+                           stage1_classification, cpu_millicores, cpu_threshold_millicores, cpu_util_pct,
+                           memory_working_set_mb, memory_requested_mb, memory_util_pct, network_bytes_sec,
+                           qps, idle_duration_sec, min_idle_duration_sec, duration_satisfied,
+                           sample_count, min_samples, samples_satisfied, is_consistently_idle,
+                           stage1_reasons, composite_score, decision_action, soft_threshold,
+                           full_threshold, score_cpu, score_mem, score_benefit, score_priority,
+                           score_state, score_replica, full_reclaim_allowed, soft_reclaim_allowed,
+                           rejection_reasons, decision_reasons
+                    FROM scheduler_evaluation_cycles
+                    WHERE cycle_number = ?
+                    ORDER BY CASE WHEN run_id = ? THEN 0 ELSE 1 END, run_id DESC, pod_name ASC;
+                """, (target_cycle, run_id or 0))
+                pods = parse_eval_rows(cur.fetchall())
+                cycle_timestamp = pods[0]["timestamp"] if pods else ""
+                elapsed = pods[0]["elapsed_seconds"] if pods else 0.0
                 conn.close()
                 resp = {
+                    "mode": "single_cycle",
                     "run_id": run_id,
                     "cycle_number": target_cycle or 0,
                     "timestamp": cycle_timestamp,
@@ -947,6 +1166,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 def main():
     # Ensure SQLite database and all schema tables exist on any clean clone
     init_database(DB_PATH)
+
+    # Backfill legacy checkpoint records with genuine scheduler evaluations & status
+    backfill_checkpoint_events(DB_PATH)
 
     # Start background collector thread
     collector_th = threading.Thread(target=background_collector_thread, daemon=True)

@@ -144,6 +144,12 @@ func (s *ActivatorServer) ParseTargetService(r *http.Request) (*TargetServiceDet
 		}
 	}
 
+	if port == 80 && s.k8sClient != nil {
+		if svc, err := s.k8sClient.CoreV1().Services(ns).Get(r.Context(), name, metav1.GetOptions{}); err == nil && len(svc.Spec.Ports) > 0 {
+			port = int(svc.Spec.Ports[0].Port)
+		}
+	}
+
 	return &TargetServiceDetails{
 		Namespace: ns,
 		Name:      name,
@@ -209,7 +215,7 @@ func (s *ActivatorServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Workload and dependencies are now Ready on the Kubernetes Service EndpointSlice!
 	var resp *http.Response
 	var reqErr error
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < 10; attempt++ {
 		targetReq, err := bufferedReq.ToHTTPRequest(r.Context(), targetBaseURL)
 		if err != nil {
 			s.logger.Error("Failed constructing target request from buffer", zap.Error(err))
@@ -217,8 +223,11 @@ func (s *ActivatorServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp, reqErr = s.httpClient.Do(targetReq)
-		if reqErr == nil {
+		if reqErr == nil && resp.StatusCode < 500 {
 			break
+		}
+		if resp != nil {
+			resp.Body.Close()
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -381,7 +390,7 @@ func (s *ActivatorServer) restoreSingleWorkload(ctx context.Context, namespace, 
 
 	var match *v1alpha1.CheckpointRecord
 	for _, rec := range readyRecords {
-		if rec.Spec.SourcePodName == workloadName || rec.Name == workloadName || strings.HasPrefix(rec.Spec.SourcePodName, workloadName) {
+		if rec.Spec.OwnerName == workloadName || rec.Spec.SourcePodName == workloadName || rec.Name == workloadName || strings.HasPrefix(rec.Spec.SourcePodName, workloadName) {
 			match = rec
 			break
 		}
@@ -392,6 +401,21 @@ func (s *ActivatorServer) restoreSingleWorkload(ctx context.Context, namespace, 
 		rec, getErr := s.records.Get(ctx, namespace, workloadName)
 		if getErr == nil && rec != nil {
 			match = rec
+		}
+	}
+
+	if match == nil && s.k8sClient != nil {
+		// Fallback: If it's a deployment with 0 replicas without an explicit Ready checkpoint record, scale it up to 1
+		if dep, err := s.k8sClient.AppsV1().Deployments(namespace).Get(ctx, workloadName, metav1.GetOptions{}); err == nil {
+			if dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
+				replicas := int32(1)
+				dep.Spec.Replicas = &replicas
+				if _, updateErr := s.k8sClient.AppsV1().Deployments(namespace).Update(ctx, dep, metav1.UpdateOptions{}); updateErr != nil {
+					return fmt.Errorf("scale deployment %s/%s fallback: %w", namespace, workloadName, updateErr)
+				}
+				s.logger.Info("Scaled deployment up to 1 via fallback", zap.String("deployment", workloadName))
+				return nil
+			}
 		}
 	}
 
@@ -445,15 +469,18 @@ func (s *ActivatorServer) discoverWorkloadGraph(ctx context.Context, namespace s
 					}
 				}
 
-				serviceName := rec.Spec.SourcePodName
-				// Trim replica hashes if deployment pod
-				parts := strings.Split(serviceName, "-")
-				if len(parts) > 2 {
-					serviceName = strings.Join(parts[:len(parts)-2], "-")
+				serviceName := rec.Spec.OwnerName
+				if serviceName == "" {
+					serviceName = rec.Spec.SourcePodName
+					// Trim replica hashes if deployment pod
+					parts := strings.Split(serviceName, "-")
+					if len(parts) > 2 {
+						serviceName = strings.Join(parts[:len(parts)-2], "-")
+					}
 				}
 
 				results = append(results, dependency.WorkloadInfo{
-					Key:          dependency.WorkloadKey{Namespace: rec.Namespace, Name: rec.Spec.SourcePodName},
+					Key:          dependency.WorkloadKey{Namespace: rec.Namespace, Name: serviceName},
 					ServiceName:  serviceName,
 					Dependencies: dependency.ParseDependencies(rec.Namespace, annotations),
 					IsReady:      false,

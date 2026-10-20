@@ -152,3 +152,76 @@ docker exec adaptive-cluster-worker2 ls -lh /var/lib/kubelet/checkpoints/
 | **Check pod placement** | `docker exec adaptive-cluster-control-plane kubectl get pods -n test-application-adaptive -o wide` |
 | **View Kubelet checkpoints** | `docker exec adaptive-cluster-worker2 ls -lh /var/lib/kubelet/checkpoints/` |
 | **Clean old checkpoints** | `docker exec adaptive-cluster-worker2 rm -f /var/lib/kubelet/checkpoints/*.tar` |
+
+---
+
+## 5. Telemetry Dashboard & SQLite Database Standalone Operations
+
+The Telemetry Dashboard (`dashboard.py`) and SQLite database operate independently of the benchmark workloads and schedulers. When `start_benchmark.sh` stops, test workloads and schedulers scale down, but the dashboard remains running so you can inspect historical runs, comparative graphs, discrete cycle scoring matrices, and CRIU checkpoint audit logs.
+
+### A. Initialize / Verify SQLite Database
+The SQLite database stores historical runs, Prometheus timeseries metrics, discrete evaluation cycles, and CRIU checkpoint events. To initialize tables or run pending schema migrations:
+```bash
+python3 benchmark-workloads/telemetry/collector.py
+```
+*(Automatically creates `benchmark_telemetry.sqlite3` if missing, runs any needed schema migrations such as checkpoint status columns, and verifies connectivity).*
+
+### B. Start Telemetry Dashboard Standalone
+
+**Option 1: Foreground (Interactive)**
+Runs the HTTP server and logs directly in your terminal on `http://localhost:8090`:
+```bash
+python3 benchmark-workloads/telemetry/dashboard.py
+```
+
+**Option 2: Background Daemon (Persistent)**
+Runs the HTTP server decoupled from the terminal so you can close your session and keep browsing past run results:
+```bash
+nohup python3 benchmark-workloads/telemetry/dashboard.py > /tmp/dashboard_server.log 2>&1 &
+```
+
+### C. Check Dashboard Status & Endpoints
+```bash
+# Verify HTTP health & list all recorded benchmark runs
+curl -s http://localhost:8090/api/runs | jq .
+
+# Check discrete evaluation cycles
+curl -s "http://localhost:8090/api/evaluations?mode=recent_cycles&count=3" | jq .
+
+# Check recorded CRIU checkpoint audit logs with status
+curl -s http://localhost:8090/api/checkpoints | jq .
+
+# Check real-time / last-recorded pod reclamation stats
+curl -s http://localhost:8090/api/stats | jq .
+```
+Open in browser: **`http://localhost:8090`**
+
+### D. Direct SQLite Database Queries
+
+**List past benchmark runs:**
+```bash
+sqlite3 benchmark-workloads/telemetry/benchmark_telemetry.sqlite3 \
+  "SELECT id, profile, status, start_time, end_time FROM benchmark_runs ORDER BY id DESC LIMIT 5;"
+```
+
+**Inspect Checkpoint Audit Log (with genuine scores, memory freed, and CRIU status):**
+```bash
+sqlite3 benchmark-workloads/telemetry/benchmark_telemetry.sqlite3 \
+  "SELECT id, pod_name, score, memory_freed_mb, status, status_message, checkpoint_path FROM checkpoint_events ORDER BY id DESC LIMIT 5;"
+```
+
+**Inspect Discrete Cycle Evaluation Matrix:**
+```bash
+sqlite3 benchmark-workloads/telemetry/benchmark_telemetry.sqlite3 \
+  "SELECT cycle_id, pod_name, composite_score, decision, ROUND(memory_working_set_bytes/1048576.0, 2) AS ram_mb FROM scheduler_evaluation_cycles ORDER BY cycle_id DESC, pod_name LIMIT 10;"
+```
+
+### E. Stop Telemetry Dashboard Standalone
+If you ever need to stop the dashboard server manually:
+```bash
+pkill -f "dashboard.py"
+```
+Or kill the process holding port 8090:
+```bash
+fuser -k 8090/tcp
+```

@@ -44,7 +44,7 @@ dataset/*.tar.gz
 # Benchmark Telemetry Reports
 benchmark-workloads/telemetry/reports/
 
-# SQLite databases & journals
+# SQLite databases, journals & dumps
 *.sqlite
 *.sqlite3
 *.db
@@ -54,4 +54,39 @@ benchmark-workloads/telemetry/reports/
 *.sqlite3-shm
 *.db-wal
 *.db-shm
-*.sqlite3.corrupt.bak
+*.db-journal
+*.sqlite3.corrupt*
+*.sqlite3.bak
+*.db.bak
+*.dump
+dump.sql
+*.sql.bak
+temp_bench.sqlite3*
+
+# Microservice Datastores (Redis, Postgres, Prometheus)
+dump.rdb
+*.rdb
+pgdata/
+postgres_data/
+prometheus-data/
+tsdb/
+
+# Live Telemetry Datastores & Traffic Simulator Output
+recent_requests.json
+**/recent_requests.json
+benchmark_traffic_telemetry.csv
+**/benchmark_traffic_telemetry.csv
+scripts/benchmark_telemetry.csv
+
+# Container Checkpoints (CRIU Tarballs & Directories)
+checkpoints/
+checkpoint-*.tar
+*.tar
+
+# Benchmark Logs & Generated Visualizer Reports
+*.log
+logs/
+benchmark_*.png
+scheduler_resource_optimization.png
+SCHEDULER_COMPARATIVE_PERFORMANCE_REPORT.md
+**/SCHEDULER_COMPARATIVE_PERFORMANCE_REPORT.md

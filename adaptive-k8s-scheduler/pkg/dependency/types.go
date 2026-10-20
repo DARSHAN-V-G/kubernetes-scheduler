@@ -99,7 +99,7 @@ func WorkloadInfoFromPod(pod *corev1.Pod, isHibernated bool) WorkloadInfo {
 	}
 
 	return WorkloadInfo{
-		Key:          WorkloadKey{Namespace: pod.Namespace, Name: pod.Name},
+		Key:          WorkloadKey{Namespace: pod.Namespace, Name: serviceName},
 		ServiceName:  serviceName,
 		Dependencies: ParseDependencies(pod.Namespace, pod.Annotations),
 		IsReady:      isReady,

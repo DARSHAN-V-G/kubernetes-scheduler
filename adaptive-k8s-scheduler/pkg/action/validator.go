@@ -2,6 +2,7 @@ package action
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/storage"
 	"go.uber.org/zap"
@@ -25,13 +26,24 @@ func NewCheckpointValidator(store storage.CheckpointStorage, logger *zap.Logger)
 }
 
 // ValidateArchive checks whether the archive exists, is not empty, can be read as a tar,
-// and computes its SHA-256 hash.
+// and computes its SHA-256 hash. Retries existence check to accommodate filesystem flush latency.
 func (v *CheckpointValidator) ValidateArchive(path string) (*storage.ArchiveMetadata, error) {
 	if path == "" {
 		return nil, fmt.Errorf("empty archive path")
 	}
 
-	exists, err := v.storage.Exists(path)
+	var exists bool
+	var err error
+	// Retry existence check for up to 5 seconds to accommodate filesystem flush latency
+	for attempt := 0; attempt < 10; attempt++ {
+		exists, err = v.storage.Exists(path)
+		if err == nil && exists {
+			break
+		}
+		if attempt < 9 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("storage access error checking archive: %w", err)
 	}

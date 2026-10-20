@@ -21,6 +21,13 @@ func NewDependencyGraph() *DependencyGraph {
 func BuildGraph(workloads []WorkloadInfo) *DependencyGraph {
 	g := NewDependencyGraph()
 	for _, w := range workloads {
+		if existing, exists := g.nodes[w.Key]; exists {
+			if w.IsReady {
+				existing.Info.IsReady = true
+				existing.Info.IsHibernate = false
+			}
+			continue
+		}
 		g.nodes[w.Key] = &DependencyNode{
 			Info:     w,
 			Parents:  make(map[WorkloadKey]*DependencyNode),

@@ -155,7 +155,7 @@ def analyze_data(db_path, run_id=None):
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoint_events';")
         if cur.fetchone():
             cur.execute(f"""
-                SELECT timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb
+                SELECT timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, status, status_message
                 FROM checkpoint_events
                 {where_clause}
                 ORDER BY id ASC;
@@ -365,8 +365,8 @@ def format_checkpoint_table(events):
     if not events:
         return "*No checkpoint events were triggered during this benchmark run (workloads remained active or within soft-reclaim boundaries).*"
 
-    table = "| Timestamp (UTC) | Workload Pod | Action | Composite Score | Memory Freed | Checkpoint Size |\n"
-    table += "| :--- | :--- | :--- | :--- | :--- | :--- |\n"
+    table = "| Timestamp (UTC) | Workload Pod | Action | Status | Composite Score | Memory Freed | Checkpoint Size |\n"
+    table += "| :--- | :--- | :--- | :---: | :--- | :--- | :--- |\n"
     for e in events:
         ts = e[0]
         pod = e[1]
@@ -374,7 +374,8 @@ def format_checkpoint_table(events):
         score = e[4] or 0.0
         freed = e[5] or 0.0
         size_mb = e[6] or 0.0
-        table += f"| {ts} | `{pod}` | **{action}** | {score:.4f} | +{freed:.1f} MB | {size_mb:.2f} MB |\n"
+        status = e[7] if len(e) > 7 and e[7] else "SUCCESS"
+        table += f"| {ts} | `{pod}` | **{action}** | `{status}` | {score:.4f} | +{freed:.1f} MB | {size_mb:.2f} MB |\n"
     return table
 
 def generate_markdown_report(stats, outdir):
