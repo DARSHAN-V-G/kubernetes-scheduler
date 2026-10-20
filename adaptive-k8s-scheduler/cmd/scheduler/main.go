@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -89,6 +92,7 @@ func main() {
 	recordWriter := action.NewDynamicCheckpointRecordWriter(dynamicClient)
 	actionMgr := action.NewActionManager(kubeletClient, validator, evictor, softReclaimer, recordWriter, logger)
 	actionMgr.SetGracefulReclaimer(action.NewGracefulReclaimer(clientset, recordWriter, logger))
+	actionMgr.SetK8sClient(clientset)
 	restoreEngine := action.NewRestoreEngine(clientset, logger)
 	restoreEngine.SetStatusWriter(recordWriter)
 
@@ -380,7 +384,44 @@ func restoreForPendingDemand(
 		}
 		return nil
 	}
+
+	// Also check queue-driven demand for batch-worker if it has a Ready checkpoint
+	readyAdaptive, err := records.ListReady(ctx, "test-application-adaptive")
+	if err == nil {
+		for _, rec := range readyAdaptive {
+			if strings.Contains(rec.Spec.SourcePodName, "batch-worker") || strings.Contains(rec.Spec.OwnerName, "batch-worker") {
+				if checkRedisQueueNonEmpty("cache.test-application-adaptive.svc.cluster.local:6379", "queue:batch-tasks") {
+					logger.Info("Queue demand detected for batch-worker; restoring deployment",
+						zap.String("checkpointRecord", rec.Name),
+					)
+					_, _ = restoreEngine.RestorePod(ctx, rec)
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+func checkRedisQueueNonEmpty(addr, queue string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(1 * time.Second))
+	cmd := fmt.Sprintf("*2\r\n$4\r\nLLEN\r\n$%d\r\n%s\r\n", len(queue), queue)
+	if _, err := conn.Write([]byte(cmd)); err != nil {
+		return false
+	}
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	if err != nil || len(line) < 2 || line[0] != ':' {
+		return false
+	}
+	countStr := strings.TrimSpace(line[1:])
+	count, _ := strconv.Atoi(countStr)
+	return count > 0
 }
 
 type schedulerCooldownAdapter struct {

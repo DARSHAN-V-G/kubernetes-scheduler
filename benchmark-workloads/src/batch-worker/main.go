@@ -82,17 +82,38 @@ func init() {
 	time.Local = istLocation
 }
 
+// pollNextTask checks for a queued task and closes the connection immediately.
+// This ensures no active TCP sockets are open during idle periods, allowing seamless CRIU checkpointing.
+func pollNextTask(ctx context.Context, redisAddr string) (*BatchTask, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:         redisAddr,
+		DialTimeout:  3 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+		PoolSize:     1,
+		MinIdleConns: 0,
+	})
+	defer client.Close()
+
+	res, err := client.LPop(ctx, "queue:batch-tasks").Result()
+	if err == redis.Nil {
+		return nil, nil // Queue is empty
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var task BatchTask
+	if err := json.Unmarshal([]byte(res), &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
 func main() {
 	redisAddr := getEnv("REDIS_ADDR", "cache:6379")
-	log.Printf("[%s] Starting Batch Worker daemon. Connecting to Redis queue at %s...",
+	log.Printf("[%s] Starting Batch Worker daemon (CRIU-checkpoint-ready). Monitoring queue at %s...",
 		time.Now().In(istLocation).Format("15:04:05 IST"), redisAddr)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr:         redisAddr,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  0, // indefinite read timeout for blocking operations
-		WriteTimeout: 5 * time.Second,
-	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -114,10 +135,7 @@ func main() {
 			log.Printf("[%s] Batch Worker stopped gracefully.", time.Now().In(istLocation).Format("15:04:05 IST"))
 			return
 		default:
-			// BLPop blocks indefinitely (timeout: 0) on Redis server.
-			// This is a true zero-overhead blocking call that generates ZERO network packets
-			// and zero CPU usage while waiting, allowing the pod to reliably qualify as IDLE.
-			results, err := rdb.BLPop(ctx, 0, "queue:batch-tasks").Result()
+			task, err := pollNextTask(ctx, redisAddr)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -128,15 +146,19 @@ func main() {
 				continue
 			}
 
-			// results[0] = list key ("queue:batch-tasks"), results[1] = JSON payload
-			if len(results) >= 2 {
-				var task BatchTask
-				if err := json.Unmarshal([]byte(results[1]), &task); err == nil {
-					simulateHeavyCompute(task)
-				} else {
-					log.Printf("[%s] Failed to decode task JSON: %v",
-						time.Now().In(istLocation).Format("15:04:05 IST"), err)
-				}
+			if task != nil {
+				simulateHeavyCompute(*task)
+				// Immediately check for subsequent task without sleeping
+				continue
+			}
+
+			// When queue is empty, the Redis client is closed.
+			// No TCP sockets are held open while idle, allowing CRIU to snapshot heap memory cleanly.
+			// Sleeping for 5s avoids excessive TCP handshake packet generation during quiescence.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
 			}
 		}
 	}

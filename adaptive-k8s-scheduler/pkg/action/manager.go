@@ -8,10 +8,12 @@ import (
 	"github.com/finalyearproject/adaptive-k8s-scheduler/api/v1alpha1"
 	"github.com/finalyearproject/adaptive-k8s-scheduler/pkg/decision"
 	"go.uber.org/zap"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 )
 
 // CheckpointRecordWriter abstracts committing CheckpointRecord CRDs to Kubernetes.
@@ -26,6 +28,7 @@ type CheckpointStateStore interface {
 
 // ActionManager orchestrates execution of Full Reclaim, Soft Reclaim, and Keep decisions.
 type ActionManager struct {
+	client        kubernetes.Interface
 	kubeletClient KubeletClient
 	validator     *CheckpointValidator
 	evictor       PodEvictor
@@ -38,6 +41,11 @@ type ActionManager struct {
 // SetGracefulReclaimer configures the fallback used by annotated network services.
 func (m *ActionManager) SetGracefulReclaimer(reclaimer *GracefulReclaimer) {
 	m.graceful = reclaimer
+}
+
+// SetK8sClient configures the Kubernetes clientset for workload lifecycle management.
+func (m *ActionManager) SetK8sClient(client kubernetes.Interface) {
+	m.client = client
 }
 
 // NewActionManager creates a fully configured ActionManager instance.
@@ -241,9 +249,14 @@ func (m *ActionManager) executeFullReclaim(ctx context.Context, req ActionReques
 			PodSpecSnapshot:     pod.PodSpecSnapshot,
 		},
 		Status: v1alpha1.CheckpointRecordStatus{
-			Phase:   v1alpha1.CheckpointPhaseCheckpointed,
-			Message: "Container state captured and verified; source pod lifecycle pending",
+			Phase:   v1alpha1.CheckpointPhaseReady,
+			Message: "Container state captured and verified; workload scaled to zero",
 		},
+	}
+
+	if pod.Replicas != nil && pod.Replicas.OwnerKind != "" {
+		record.Spec.OwnerKind = pod.Replicas.OwnerKind
+		record.Spec.OwnerName = pod.Replicas.OwnerName
 	}
 
 	if m.recordWriter == nil {
@@ -255,7 +268,29 @@ func (m *ActionManager) executeFullReclaim(ctx context.Context, req ActionReques
 	}
 	result.CheckpointRecordName = ckptRecordName
 
-	if pod.Replicas != nil && pod.Replicas.OwnerKind != "" {
+	if pod.Replicas != nil && pod.Replicas.OwnerKind == "Deployment" && pod.Replicas.OwnerName != "" {
+		if m.client != nil {
+			zero := int32(0)
+			if _, err := m.client.AppsV1().Deployments(pod.Namespace).UpdateScale(ctx, pod.Replicas.OwnerName, &autoscalingv1.Scale{
+				ObjectMeta: metav1.ObjectMeta{Name: pod.Replicas.OwnerName, Namespace: pod.Namespace},
+				Spec:       autoscalingv1.ScaleSpec{Replicas: zero},
+			}, metav1.UpdateOptions{}); err != nil {
+				m.logger.Error("Checkpoint captured but scaling Deployment to zero failed", zap.Error(err))
+				return m.failResult(result, start, fmt.Sprintf("checkpoint captured but scaling deployment to zero failed: %v", err))
+			}
+			m.logger.Info("Deployment scaled to zero after container checkpoint",
+				zap.String("deployment", pod.Replicas.OwnerName),
+				zap.String("checkpointRecord", ckptRecordName),
+			)
+			result.Success = true
+			result.FreedCPUMillicores = float64(pod.TotalRequestedCPUMillis)
+			result.FreedMemoryBytes = pod.TotalRequestedMemory
+			result.Message = fmt.Sprintf("Pod successfully checkpointed and Deployment %s scaled to 0; freed %.0fm CPU and %d bytes RAM",
+				pod.Replicas.OwnerName, result.FreedCPUMillicores, result.FreedMemoryBytes)
+			result.Duration = time.Since(start)
+			return result, nil
+		}
+	} else if pod.Replicas != nil && pod.Replicas.OwnerKind != "" {
 		result.Success = true
 		result.Message = fmt.Sprintf("checkpointed; lifecycle release deferred for owner %s", pod.Replicas.OwnerKind)
 		result.Duration = time.Since(start)

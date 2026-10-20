@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/finalyearproject/adaptive-k8s-scheduler/api/v1alpha1"
@@ -123,19 +122,19 @@ func (r *RestoreEngine) RestorePod(ctx context.Context, record *v1alpha1.Checkpo
 		record.ResourceVersion = updated.ResourceVersion
 	}
 
-	if strings.HasPrefix(record.Spec.CheckpointPath, "graceful://") && record.Spec.OwnerKind == "Deployment" && record.Spec.OwnerName != "" {
+	if record.Spec.OwnerKind == "Deployment" && record.Spec.OwnerName != "" {
 		replicas := int32(1)
 		if _, err := r.client.AppsV1().Deployments(record.Namespace).UpdateScale(ctx, record.Spec.OwnerName, &autoscalingv1.Scale{ObjectMeta: metav1.ObjectMeta{Name: record.Spec.OwnerName, Namespace: record.Namespace}, Spec: autoscalingv1.ScaleSpec{Replicas: replicas}}, metav1.UpdateOptions{}); err != nil {
 			if statusErr := r.markFailed(ctx, record, err); statusErr != nil {
-				return nil, fmt.Errorf("scale graceful Deployment: %w; failed to persist Failed status: %v", err, statusErr)
+				return nil, fmt.Errorf("scale Deployment: %w; failed to persist Failed status: %v", err, statusErr)
 			}
-			return nil, fmt.Errorf("scale graceful Deployment: %w", err)
+			return nil, fmt.Errorf("scale Deployment: %w", err)
 		}
 		now := metav1.Now()
 		record.Status.Phase = v1alpha1.CheckpointPhaseRestored
 		record.Status.RestoredPodName = record.Spec.OwnerName
 		record.Status.RestoredAt = &now
-		record.Status.Message = fmt.Sprintf("Graceful redeployment requested for Deployment %s", record.Spec.OwnerName)
+		record.Status.Message = fmt.Sprintf("Redeployment requested for Deployment %s", record.Spec.OwnerName)
 		if r.statusWriter != nil {
 			updated, err := r.statusWriter.UpdateStatus(ctx, record)
 			if err != nil {

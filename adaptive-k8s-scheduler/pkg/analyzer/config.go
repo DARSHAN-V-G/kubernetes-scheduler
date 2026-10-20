@@ -1,5 +1,10 @@
 package analyzer
 
+import (
+	"os"
+	"strconv"
+)
+
 // Config holds all tunable parameters for the Workload Analyzer.
 // Values here are used exclusively by the Analyzer itself — the IsConsistentlyIdle
 // re-validation uses these thresholds, independently from the Detector thresholds.
@@ -33,7 +38,7 @@ type Config struct {
 // DefaultConfig returns the standard Analyzer configuration matching the
 // project implementation plan defaults.
 func DefaultConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		EMAAlpha:           0.3,
 		TrendRisingDelta:   0.20,
 		TrendFallingDelta:  0.20,
@@ -41,4 +46,22 @@ func DefaultConfig() *Config {
 		IdleNetBytesPerSec: 15360.0,
 		IdleQPSThreshold:   2.0,
 	}
+
+	if val := os.Getenv("IDLE_QPS_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f >= 0 {
+			cfg.IdleQPSThreshold = f
+		}
+	}
+	if val := os.Getenv("IDLE_CPU_MILLICORES"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f >= 0 {
+			cfg.IdleCPUMillicores = f
+		}
+	}
+	if val := os.Getenv("IDLE_NET_THRESHOLD_BYTES"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f >= 0 {
+			cfg.IdleNetBytesPerSec = f
+		}
+	}
+
+	return cfg
 }

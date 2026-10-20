@@ -318,7 +318,7 @@ def query_prometheus(query: str, prom_url: str = PROMETHEUS_URL) -> float:
     return 0.0
 
 def query_replica_count(namespace: str, prom_url: str = PROMETHEUS_URL) -> int:
-    q = f"sum(kube_deployment_status_replicas_ready{{namespace='{namespace}'}})"
+    q = f"count(container_last_seen{{namespace='{namespace}', container!='', container!='POD'}} and (time() - container_last_seen < 15))"
     val = query_prometheus(q, prom_url)
     return int(val) if val > 0 else 0
 
@@ -329,16 +329,16 @@ def collect_sample(elapsed: float, prom_url: str = PROMETHEUS_URL) -> dict:
     q_node_free = "node_memory_MemAvailable_bytes / (1024 * 1024)"
     base_free = query_prometheus(q_node_free, prom_url)
     if base_free <= 0.0:
-        base_free = max(1000.0, 3800.0 - query_prometheus("sum(container_memory_working_set_bytes{container!='', container!='POD'}) / (1024*1024)", prom_url))
+        base_free = max(1000.0, 3800.0 - query_prometheus("sum(container_memory_working_set_bytes{container!='', container!='POD'} and (time() - container_last_seen < 15)) / (1024*1024)", prom_url))
 
     # 2. Default Scheduler Workloads (running on worker-1: benchmark.role=default)
-    q_def_mem = "sum(container_memory_working_set_bytes{namespace='test-application-default', container!='', container!='POD'}) / (1024 * 1024)"
+    q_def_mem = "sum(container_memory_working_set_bytes{namespace='test-application-default', container!='', container!='POD'} and (time() - container_last_seen < 15)) / (1024 * 1024)"
     q_def_cpu = "sum(rate(container_cpu_usage_seconds_total{namespace='test-application-default', container!='', container!='POD'}[30s])) * 1000"
     def_mem = query_prometheus(q_def_mem, prom_url)
     def_cpu = query_prometheus(q_def_cpu, prom_url)
 
     # 3. Adaptive Scheduler Workloads (running on worker-2: benchmark.role=adaptive)
-    q_adp_mem = "sum(container_memory_working_set_bytes{namespace='test-application-adaptive', container!='', container!='POD'}) / (1024 * 1024)"
+    q_adp_mem = "sum(container_memory_working_set_bytes{namespace='test-application-adaptive', container!='', container!='POD'} and (time() - container_last_seen < 15)) / (1024 * 1024)"
     q_adp_cpu = "sum(rate(container_cpu_usage_seconds_total{namespace='test-application-adaptive', container!='', container!='POD'}[30s])) * 1000"
     adp_mem = query_prometheus(q_adp_mem, prom_url)
     adp_cpu = query_prometheus(q_adp_cpu, prom_url)
@@ -347,18 +347,9 @@ def collect_sample(elapsed: float, prom_url: str = PROMETHEUS_URL) -> dict:
     adp_rep = query_replica_count("test-application-adaptive", prom_url)
 
     # 4. Two Distinct Node Free Memory Calculations:
-    # Try querying direct physical worker node metrics from cAdvisor if available:
-    q_def_direct = "(machine_memory_bytes{node=~'.*worker$|.*default.*'} - sum(container_memory_working_set_bytes{node=~'.*worker$|.*default.*', container!='', container!='POD'})) / (1024 * 1024)"
-    q_adp_direct = "(machine_memory_bytes{node=~'.*worker2|.*adaptive.*'} - sum(container_memory_working_set_bytes{node=~'.*worker2|.*adaptive.*', container!='', container!='POD'})) / (1024 * 1024)"
-    def_direct = query_prometheus(q_def_direct, prom_url)
-    adp_direct = query_prometheus(q_adp_direct, prom_url)
-    if def_direct > 0 and adp_direct > 0:
-        def_node_free = round(def_direct, 2)
-        adp_node_free = round(adp_direct, 2)
-    else:
-        # Derived from base host physical headroom and per-workload working sets
-        def_node_free = round(base_free - def_mem, 2)
-        adp_node_free = round(base_free - adp_mem, 2)
+    # Derived from base host physical headroom and per-workload working sets
+    def_node_free = round(base_free - def_mem, 2)
+    adp_node_free = round(base_free - adp_mem, 2)
 
     # Instantaneous memory saved
     saved_mem_mb = max(0.0, round(def_mem - adp_mem, 2))

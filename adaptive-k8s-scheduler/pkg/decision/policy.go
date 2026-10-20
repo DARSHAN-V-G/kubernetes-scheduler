@@ -1,5 +1,10 @@
 package decision
 
+import (
+	"os"
+	"strconv"
+)
+
 // Policy holds all configurable thresholds, weights, and annotation keys for the
 // Reclamation Decision Engine. Every numeric constant used in logic files MUST
 // come from this struct — no magic numbers elsewhere.
@@ -63,7 +68,7 @@ type Policy struct {
 
 // DefaultPolicy returns the standard policy matching the project implementation plan.
 func DefaultPolicy() *Policy {
-	return &Policy{
+	p := &Policy{
 		FullReclaimScoreThreshold: 0.5927,
 		SoftReclaimScoreThreshold: 0.3361,
 
@@ -88,4 +93,17 @@ func DefaultPolicy() *Policy {
 		CheckpointableAnnotation: "reclaim.io/checkpointable",
 		ProtectedAnnotation:      "reclaim.io/protected",
 	}
+
+	if val := os.Getenv("FULL_RECLAIM_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f > 0 {
+			p.FullReclaimScoreThreshold = f
+		}
+	}
+	if val := os.Getenv("SOFT_RECLAIM_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil && f > 0 {
+			p.SoftReclaimScoreThreshold = f
+		}
+	}
+
+	return p
 }
