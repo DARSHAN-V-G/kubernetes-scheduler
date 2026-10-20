@@ -566,17 +566,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def handle_checkpoints(self, query_string):
         params = parse_qs(query_string)
-        run_id = params.get("run_id", [None])[0]
+        run_id_param = params.get("run_id", ["live"])[0]
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(DB_PATH, timeout=5.0)
             cur = conn.cursor()
-            if run_id:
+            cur.execute("PRAGMA busy_timeout=5000;")
+
+            target_run_id = None
+            if run_id_param and run_id_param not in ("live", "all"):
+                try:
+                    target_run_id = int(run_id_param)
+                except ValueError:
+                    target_run_id = None
+
+            if run_id_param != "all" and target_run_id is None:
+                cur.execute("SELECT run_id FROM benchmark_runs WHERE status = 'RUNNING' ORDER BY run_id DESC LIMIT 1;")
+                row = cur.fetchone()
+                if row:
+                    target_run_id = row[0]
+                else:
+                    cur.execute("SELECT run_id FROM benchmark_runs ORDER BY run_id DESC LIMIT 1;")
+                    row = cur.fetchone()
+                    target_run_id = row[0] if row else 1
+
+            if target_run_id is not None and run_id_param != "all":
                 cur.execute("""
                     SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path
                     FROM checkpoint_events
                     WHERE run_id = ?
                     ORDER BY id DESC;
-                """, (int(run_id),))
+                """, (target_run_id,))
             else:
                 cur.execute("""
                     SELECT id, run_id, timestamp, pod_name, namespace, action, score, memory_freed_mb, checkpoint_size_mb, checkpoint_path
@@ -599,9 +618,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "checkpoint_path": r[9]
                 })
             conn.close()
+            payload = {
+                "target_run_id": target_run_id,
+                "events": events
+            }
         except Exception:
-            events = []
-        data = json.dumps(events).encode("utf-8")
+            payload = {"target_run_id": None, "events": []}
+        data = json.dumps(payload).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -627,26 +650,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     target_run_id = None
 
             if target_run_id is None:
-                cur.execute("SELECT run_id FROM benchmark_runs ORDER BY run_id DESC LIMIT 1;")
+                # In live mode: check active RUNNING run first
+                cur.execute("SELECT run_id FROM benchmark_runs WHERE status = 'RUNNING' ORDER BY run_id DESC LIMIT 1;")
                 row = cur.fetchone()
-                if row:
-                    target_run_id = row[0]
-                else:
-                    cur.execute("SELECT DISTINCT run_id FROM scheduler_evaluation_cycles ORDER BY run_id DESC LIMIT 1;")
-                    row = cur.fetchone()
-                    target_run_id = row[0] if row else 1
+                target_run_id = row[0] if row else None
 
-            cur.execute("""
-                SELECT DISTINCT cycle_number, timestamp, elapsed_seconds
-                FROM scheduler_evaluation_cycles
-                WHERE run_id = ?
-                ORDER BY cycle_number DESC;
-            """, (target_run_id,))
-            cycle_rows = cur.fetchall()
-            available_cycles = [
-                {"cycle": r[0], "timestamp": r[1] or "", "elapsed": r[2] or 0.0}
-                for r in cycle_rows
-            ]
+            # Fetch available cycles for target_run_id:
+            cycle_rows = []
+            if target_run_id is not None:
+                cur.execute("""
+                    SELECT DISTINCT cycle_number, timestamp, elapsed_seconds
+                    FROM scheduler_evaluation_cycles
+                    WHERE run_id = ?
+                    ORDER BY cycle_number DESC;
+                """, (target_run_id,))
+                cycle_rows = cur.fetchall()
+
+            # If target_run_id has no cycles recorded yet (e.g. freshly started run),
+            # fall back to the most recent run that HAS recorded cycles so cycles are always selectable:
+            if not cycle_rows:
+                cur.execute("""
+                    SELECT DISTINCT run_id FROM scheduler_evaluation_cycles ORDER BY run_id DESC LIMIT 1;
+                """)
+                fb_row = cur.fetchone()
+                if fb_row:
+                    fb_run_id = fb_row[0]
+                    cur.execute("""
+                        SELECT DISTINCT cycle_number, timestamp, elapsed_seconds
+                        FROM scheduler_evaluation_cycles
+                        WHERE run_id = ?
+                        ORDER BY cycle_number DESC;
+                    """, (fb_run_id,))
+                    cycle_rows = cur.fetchall()
+                    target_run_id = fb_run_id
+
+            seen_cycles = set()
+            available_cycles = []
+            for r in cycle_rows:
+                c_num = r[0]
+                if c_num not in seen_cycles:
+                    seen_cycles.add(c_num)
+                    available_cycles.append({
+                        "cycle": c_num,
+                        "timestamp": r[1] or "",
+                        "elapsed": r[2] or 0.0
+                    })
 
             target_cycle = None
             if cycle_param and cycle_param != "live":
@@ -683,11 +731,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                score_state, score_replica, full_reclaim_allowed, soft_reclaim_allowed,
                                rejection_reasons, decision_reasons
                         FROM scheduler_evaluation_cycles
-                        WHERE run_id = ? AND cycle_number = ?
-                        ORDER BY pod_name ASC;
-                    """, (run_id, target_cycle))
+                        WHERE cycle_number = ?
+                        ORDER BY CASE WHEN run_id = ? THEN 0 ELSE 1 END, run_id DESC, pod_name ASC;
+                    """, (target_cycle, run_id or 0))
                     rows = cur.fetchall()
+                    seen_pods = set()
                     for r in rows:
+                        p_name = r[3]
+                        if p_name in seen_pods:
+                            continue
+                        seen_pods.add(p_name)
                         cycle_timestamp = r[1]
                         elapsed = r[2]
                         def safe_json(val):

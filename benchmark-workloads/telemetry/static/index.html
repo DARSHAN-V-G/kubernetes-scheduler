@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <style>
         :root {
+            color-scheme: dark;
             --bg-base: #0b0f19;
             --bg-card: rgba(18, 24, 38, 0.75);
             --bg-card-hover: rgba(26, 34, 53, 0.85);
@@ -337,6 +338,66 @@
             color: #a5b4fc;
         }
 
+        /* Sleek Dark Mode Dropdown Styling */
+        select {
+            color-scheme: dark !important;
+        }
+
+        select option {
+            background-color: #0b1120 !important;
+            color: #f8fafc !important;
+            padding: 8px 12px;
+        }
+
+        .select-dark {
+            background-color: #0d1527;
+            color: #f1f5f9;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', 'Inter', monospace;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            color-scheme: dark !important;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 14px;
+            padding-right: 32px;
+        }
+
+        .select-dark:hover {
+            border-color: rgba(99, 102, 241, 0.6);
+            background-color: #131c33;
+            color: #ffffff;
+        }
+
+        .select-dark:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
+        }
+
+        .select-dark option {
+            background-color: #0b1120 !important;
+            color: #e2e8f0 !important;
+            padding: 10px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+        }
+
+        .select-dark option:checked {
+            background-color: #1e293b !important;
+            color: #38bdf8 !important;
+            font-weight: 700;
+        }
+
         .terminal-box {
             background: #060911;
             border: 1px solid rgba(255, 255, 255, 0.08);
@@ -423,7 +484,7 @@
         <div style="display:flex; align-items:center; gap:20px;">
             <div style="display:flex; align-items:center; gap:8px;">
                 <label for="runSelect" style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">Benchmark Run:</label>
-                <select id="runSelect" style="background:rgba(18, 24, 38, 0.95); color:var(--text-main); border:1px solid var(--border-glass); border-radius:8px; padding:6px 14px; font-size:0.85rem; font-family:'Inter',sans-serif; cursor:pointer; outline:none;">
+                <select id="runSelect" class="select-dark" style="min-width: 240px;">
                     <option value="live">🔴 Live Active Run</option>
                 </select>
             </div>
@@ -587,8 +648,8 @@
             </div>
             <div class="logs-controls">
                 <label for="evalCycleSelect" style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Cycle:</label>
-                <select id="evalCycleSelect" class="btn-ctrl" onchange="onCycleSelectChange()" style="cursor: pointer; min-width: 140px;">
-                    <option value="live">Live (Latest 10s Tick)</option>
+                <select id="evalCycleSelect" class="select-dark" onchange="onCycleSelectChange()" style="cursor: pointer; min-width: 280px;">
+                    <option value="live">🔴 Live (Latest 10s Tick)</option>
                 </select>
                 <button class="btn-ctrl" onclick="fetchEvaluations()">Refresh Scoring</button>
             </div>
@@ -675,6 +736,9 @@
                 <span class="brand-badge" style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.3);">
                     ● CRIU PERSISTENCE ENGINE
                 </span>
+                <span id="checkpointRunBadge" class="brand-badge" style="font-size: 0.65rem; background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan); border-color: rgba(56, 189, 248, 0.3);">
+                    Run #--
+                </span>
             </div>
             <button class="btn-ctrl" onclick="fetchCheckpoints()">Refresh Checkpoints</button>
         </div>
@@ -684,6 +748,7 @@
                 <thead>
                     <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); background-color: #0d1322; color: #94a3b8; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 2;">
                         <th style="padding: 10px 14px;">Timestamp (UTC)</th>
+                        <th style="padding: 10px 14px;">Run</th>
                         <th style="padding: 10px 14px;">Workload Pod</th>
                         <th style="padding: 10px 14px;">Action</th>
                         <th style="padding: 10px 14px;">Score</th>
@@ -694,7 +759,7 @@
                 </thead>
                 <tbody id="checkpointsTableBody">
                     <tr>
-                        <td colspan="7" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
+                        <td colspan="8" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
                             No checkpoint records captured yet.
                         </td>
                     </tr>
@@ -1196,6 +1261,7 @@
                     loadLiveHistory();
                     connectSSE();
                     fetchEvaluations();
+                    fetchCheckpoints();
                 } else {
                     isLiveMode = false;
                     if (liveEvtSource) {
@@ -1204,6 +1270,7 @@
                     dot.style.backgroundColor = 'var(--accent-cyan)';
                     text.innerText = `Loading Historical Run #${val}...`;
                     fetchEvaluations();
+                    fetchCheckpoints();
 
                     fetch(`/api/run_data?run_id=${val}`)
                         .then(res => res.json())
@@ -1260,20 +1327,29 @@
             });
         }
 
-        // Fetch Checkpoint events from SQLite
+        // Fetch Checkpoint events from SQLite linked to active/selected run
         function fetchCheckpoints() {
             const sel = document.getElementById('runSelect');
-            const runIdParam = (sel && sel.value !== 'live') ? `?run_id=${sel.value}` : '';
-            fetch(`/api/checkpoints${runIdParam}`)
+            const runVal = (sel && sel.value) ? sel.value : 'live';
+            fetch(`/api/checkpoints?run_id=${encodeURIComponent(runVal)}`)
                 .then(res => res.json())
-                .then(events => {
+                .then(data => {
                     const tbody = document.getElementById('checkpointsTableBody');
+                    const badge = document.getElementById('checkpointRunBadge');
                     if (!tbody) return;
+
+                    const events = Array.isArray(data) ? data : (data.events || []);
+                    const targetRun = (data && data.target_run_id) ? data.target_run_id : (runVal !== 'live' ? runVal : 'Active');
+
+                    if (badge) {
+                        badge.innerText = `Run #${targetRun}${runVal === 'live' ? ' (Active)' : ''}`;
+                    }
+
                     if (!Array.isArray(events) || events.length === 0) {
                         tbody.innerHTML = `
                             <tr>
-                                <td colspan="7" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
-                                    No checkpoint records captured yet.
+                                <td colspan="8" style="padding: 18px; text-align: center; color: #64748b; font-style: italic;">
+                                    No checkpoint records captured for Run #${targetRun}.
                                 </td>
                             </tr>`;
                         return;
@@ -1284,9 +1360,11 @@
                         const freed = e.memory_freed_mb ? `+${Math.round(e.memory_freed_mb)} MB` : '--';
                         const sz = e.checkpoint_size_mb ? `${e.checkpoint_size_mb.toFixed(2)} MB` : '--';
                         const score = e.score ? e.score.toFixed(4) : '--';
+                        const runNum = e.run_id ? `#${e.run_id}` : '--';
                         html += `
                             <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
                                 <td style="padding: 10px 14px; color: #94a3b8; font-family: monospace;">${ts}</td>
+                                <td style="padding: 10px 14px; color: var(--accent-cyan); font-weight: 700; font-family: monospace;">${runNum}</td>
                                 <td style="padding: 10px 14px; font-weight: 600; color: #f8fafc;">${e.pod_name}</td>
                                 <td style="padding: 10px 14px;"><span class="status-badge badge-checkpointing">${e.action}</span></td>
                                 <td style="padding: 10px 14px; color: var(--accent-amber); font-weight: 600;">${score}</td>
@@ -1328,12 +1406,12 @@
                     // Update cycle selector with all recorded cycles
                     if (cycleSel && Array.isArray(data.available_cycles)) {
                         const previousVal = cycleSel.value || 'live';
-                        const options = ['<option value="live">Live (Latest 10s Tick)</option>'];
+                        const options = ['<option value="live">🔴 Live (Latest 10s Tick)</option>'];
                         data.available_cycles.forEach(item => {
                             const cNum = typeof item === 'object' ? item.cycle : item;
                             const cTime = (typeof item === 'object' && item.timestamp) ? ` · ${item.timestamp.substring(11, 19)}` : '';
                             const cElapsed = (typeof item === 'object' && item.elapsed) ? ` (T+${Math.round(item.elapsed)}s${cTime})` : '';
-                            options.push(`<option value="${cNum}">Cycle #${cNum}${cElapsed}</option>`);
+                            options.push(`<option value="${cNum}">⏱ Cycle #${cNum}${cElapsed}</option>`);
                         });
 
                         const currentOpts = Array.from(cycleSel.options).map(o => o.value).join(',');

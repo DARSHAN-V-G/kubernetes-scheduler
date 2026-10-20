@@ -15,6 +15,7 @@
 # ==============================================================================
 
 set -eo pipefail
+MAIN_PID="$$"
 
 # ------------------------------------------------------------------------------
 # Configuration & CLI Argument Defaults
@@ -161,10 +162,25 @@ except Exception:
 fi
 
 cleanup() {
-    # Immediately unregister traps to prevent duplicate execution (e.g. INT followed by EXIT)
+    local sig="${1:-EXIT}"
+
+    # Disarm traps immediately
     trap - EXIT INT TERM
+
+    # Ensure child processes or subshells never execute cleanup
+    if [ -n "$BASHPID" ] && [ "$BASHPID" -ne "$MAIN_PID" ]; then
+        exit 0
+    fi
+
+    # Atomic cross-process lock: guarantees cleanup logic runs exactly ONCE
+    local lock_dir="${SCRIPT_DIR}/.benchmark_cleanup.lock"
+    if ! mkdir "$lock_dir" 2>/dev/null; then
+        return 0 2>/dev/null || exit 0
+    fi
+
     if [ "${CLEANUP_EXECUTED:-false}" = true ]; then
-        return 0
+        rm -rf "$lock_dir" 2>/dev/null || true
+        return 0 2>/dev/null || exit 0
     fi
     CLEANUP_EXECUTED=true
 
@@ -225,9 +241,16 @@ except Exception:
         fi
     done
 
+    rm -rf "$lock_dir" 2>/dev/null || true
     log_success "All test workload containers stopped and background processes terminated. Cluster preserved."
+
+    if [ "$sig" = "INT" ] || [ "$sig" = "TERM" ]; then
+        exit 0
+    fi
 }
-trap cleanup EXIT INT TERM
+trap 'cleanup INT' INT
+trap 'cleanup TERM' TERM
+trap 'cleanup EXIT' EXIT
 
 # ------------------------------------------------------------------------------
 # STEP 1: Verify Prerequisites
@@ -471,7 +494,7 @@ log_success "Port-forwards established."
 log_header "STEP 6: Launching Real-Time Telemetry Visualizer"
 
 log_info "Starting dashboard server on http://localhost:8090 in background..."
-(cd "$SCRIPT_DIR/benchmark-workloads/telemetry" && "$PYTHON_CMD" dashboard.py > /tmp/dashboard_server.log 2>&1) &
+(trap - EXIT INT TERM; cd "$SCRIPT_DIR/benchmark-workloads/telemetry" && exec "$PYTHON_CMD" dashboard.py > /tmp/dashboard_server.log 2>&1) &
 BG_PIDS+=($!)
 
 sleep 2
@@ -501,8 +524,8 @@ fi
 
 if [ -x "$SIM_BIN" ]; then
     log_info "Running native traffic simulator binary in WSL (direct local port-forward access)..."
-    (cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
-        "$SIM_BIN" \
+    (trap - EXIT INT TERM; cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
+        exec "$SIM_BIN" \
             -profile="$PROFILE" \
             -target-default="http://127.0.0.1:8080" \
             -target-adaptive="http://127.0.0.1:8081" \
@@ -511,8 +534,8 @@ if [ -x "$SIM_BIN" ]; then
             -duration="$DURATION" \
             -requests-file="$SCRIPT_DIR/benchmark-workloads/telemetry/recent_requests.json")
 elif [ -n "$GO_BIN" ]; then
-    (cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
-        "$GO_BIN" run main.go \
+    (trap - EXIT INT TERM; cd "$SCRIPT_DIR/benchmark-workloads/traffic-simulator" && \
+        exec "$GO_BIN" run main.go \
             -profile="$PROFILE" \
             -target-default="http://127.0.0.1:8080" \
             -target-adaptive="http://127.0.0.1:8081" \

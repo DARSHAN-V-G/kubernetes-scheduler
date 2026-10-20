@@ -43,3 +43,15 @@ dataset/*.tar.gz
 
 # Benchmark Telemetry Reports
 benchmark-workloads/telemetry/reports/
+
+# SQLite databases & journals
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-journal
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-wal
+*.db-shm
+*.sqlite3.corrupt.bak
